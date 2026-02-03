@@ -214,10 +214,36 @@ TENANT_ID=your-tenant-id-here
 CLIENT_SECRET=your-client-secret-here
 ```
 
-**Required API Permissions**: 
-- `SecurityEvents.Read.All`
-- `SecurityActions.Read.All`
-- `SecurityIncident.Read.All`
+**Required API Permissions for Application Registration:**
+
+The following Application (not Delegated) permissions must be granted in Azure Portal:
+
+#### Microsoft Graph API Permissions
+- `SecurityEvents.Read.All` - Read security events
+- `SecurityActions.Read.All` - Read security actions
+- `SecurityIncident.Read.All` - Read security incidents
+- `SecurityAlert.Read.All` - Read security alerts
+- `SecurityAnalyzedMessage.Read.All` - Read analyzed messages
+
+#### Microsoft Defender Permissions
+- `Incident.Read.All` - Read all incidents
+- `Alert.Read.All` - Read all alerts
+- `AdvancedHunting.Read.All` - Run advanced hunting queries
+
+#### Azure Monitor / Log Analytics (for Sentinel)
+- `Data.Read` - Read Log Analytics workspace data
+
+**Setup Steps:**
+1. Go to Azure Portal → Entra ID → App Registrations
+2. Select your application
+3. Navigate to "API Permissions"
+4. Click "Add a permission"
+5. Select the appropriate API (Microsoft Graph, Microsoft Threat Protection, etc.)
+6. Choose "Application permissions"
+7. Select all required permissions listed above
+8. Click "Grant admin consent" (requires Global Administrator or Privileged Role Administrator)
+
+**⚠️ Important:** After adding permissions, you **must** grant admin consent for your organization, or the API calls will fail with 403 Forbidden errors.
 
 ### External Threat Intelligence (Optional)
 To enable real threat intelligence from external sources:
