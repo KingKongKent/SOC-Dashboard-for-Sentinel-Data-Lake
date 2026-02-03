@@ -1,6 +1,6 @@
 # SOC Dashboard - Live Security Operations Center
 
-Real-time security dashboard with **Microsoft Defender**, **Microsoft Sentinel**, and **Threat Intelligence** integration. Features SQLite database for historical data, timeline filtering, and automated hourly refresh.
+Automated security dashboard with **Microsoft Defender**, **Microsoft Sentinel**, and **Threat Intelligence** integration. Features SQLite database for historical data, timeline filtering, and automated hourly refresh.
 
 ## 🚀 Quick Start
 
@@ -78,9 +78,9 @@ Navigate to: **http://localhost:5000**
 
 ## ✨ Features
 
-### Real-Time Security Metrics
+### Live Security Metrics
 - **🎯 Secure Score**: 63.3% with category breakdown (Identity, Data, Device, Apps)
-- **🔴 High Severity Incidents**: Real-time count from Microsoft Defender
+- **🔴 High Severity Incidents**: Current count from Microsoft Defender
 - **📊 Total Incidents**: All incidents with timeline filtering
 - **⚡ Active Incidents**: Incidents requiring immediate attention
 - **✅ Resolved Incidents**: Resolution rate tracking
@@ -128,9 +128,9 @@ Navigate to: **http://localhost:5000**
 - ✅ Alert volume, severity, and status visualizations
 
 ### Data Architecture
-- **File-Based Caching**: Fast dashboard loads (no live API calls on page load)
-- **Independent Data Refresh**: Run `fetch_live_data.py` to update data
-- **Real-Time Ready**: Easy to schedule automated data fetching
+- **Database-Backed Storage**: Fast dashboard loads from SQLite
+- **Scheduled Data Refresh**: Run `fetch_live_data.py` or `hourly_refresh.py` to update
+- **Flexible Scheduling**: Manual, hourly, or custom refresh intervals
 
 ## 📊 Data Sources
 
@@ -366,7 +366,7 @@ python rollback_to_json.py
 - [x] Hourly automated refresh
 - [x] Real MTTD/MTTR calculations
 - [x] Entity extraction and tracking
-- [ ] Real-time data refresh (WebSocket integration)
+- [ ] WebSocket live streaming for instant updates
 - [ ] Multi-workspace support
 - [ ] Export incident reports to PDF/Excel
 - [ ] Email/Teams notifications for critical alerts
