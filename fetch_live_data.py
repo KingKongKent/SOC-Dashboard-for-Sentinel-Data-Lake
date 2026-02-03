@@ -66,6 +66,74 @@ def get_graph_access_token():
         print(f"  ⚠️  Error getting token: {e}")
         return None
 
+def fetch_mdti_articles(access_token):
+    """
+    Fetch real Microsoft Defender Threat Intelligence articles from Graph API
+    Requires: ThreatIntelligence.Read.All permission
+    """
+    if not access_token:
+        print("  ⚠️  No access token available for MDTI articles")
+        return []
+    
+    print("\n📰 Fetching Microsoft Defender Threat Intelligence articles...")
+    
+    try:
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Microsoft Graph API endpoint for threat intelligence articles
+        # https://learn.microsoft.com/en-us/graph/api/resources/security-threatintelligence
+        url = 'https://graph.microsoft.com/v1.0/security/threatIntelligence/articles'
+        params = {
+            '$top': 4,
+            '$orderby': 'createdDateTime desc',
+            '$select': 'id,title,summary,createdDateTime,tags'
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            articles = data.get('value', [])
+            print(f"  ✅ Fetched {len(articles)} MDTI articles")
+            
+            # Format articles for dashboard
+            formatted_articles = []
+            for article in articles:
+                formatted_articles.append({
+                    'id': article.get('id', ''),
+                    'title': article.get('title', 'Untitled'),
+                    'summary': article.get('summary', '')[:200] + '...' if len(article.get('summary', '')) > 200 else article.get('summary', ''),
+                    'createdDateTime': article.get('createdDateTime', ''),
+                    'tags': article.get('tags', []),
+                    'url': f"https://security.microsoft.com/threatanalytics3/{article.get('id', '')}"
+                })
+            
+            return formatted_articles
+        
+        elif response.status_code == 403:
+            print("  ⚠️  Permission denied: ThreatIntelligence.Read.All permission required")
+            print("  💡 Add this permission in Azure Portal → App Registrations → API permissions")
+            return []
+        
+        elif response.status_code == 404:
+            print("  ⚠️  MDTI articles endpoint not available (requires Defender TI license)")
+            return []
+        
+        else:
+            print(f"  ⚠️  Failed to fetch MDTI articles: HTTP {response.status_code}")
+            print(f"  📄 Response: {response.text[:200]}")
+            return []
+            
+    except requests.exceptions.Timeout:
+        print("  ⚠️  Request timeout while fetching MDTI articles")
+        return []
+    except Exception as e:
+        print(f"  ⚠️  Error fetching MDTI articles: {e}")
+        return []
+
 def fetch_defender_incidents():
     """
     Fetch real incidents from Microsoft Defender - uses real API data structure
@@ -880,6 +948,86 @@ def fetch_talos_reputation(incidents):
         'reputationCategories': categories
     }
 
+def fetch_mdti_articles():
+    """
+    Fetch real Microsoft Defender Threat Intelligence articles from Graph API
+    Requires: ThreatIntelligence.Read.All permission
+    """
+    print("\n📰 Fetching Microsoft Defender Threat Intelligence articles...")
+    
+    access_token = get_graph_access_token()
+    if not access_token:
+        print("  ⚠️  No access token available for MDTI articles")
+        return []
+    
+    try:
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Microsoft Graph API endpoint for threat intelligence articles
+        # https://learn.microsoft.com/en-us/graph/api/resources/security-threatintelligence
+        url = 'https://graph.microsoft.com/v1.0/security/threatIntelligence/articles'
+        params = {
+            '$top': 4,
+            '$orderby': 'createdDateTime desc',
+            '$select': 'id,title,summary,createdDateTime,tags'
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            articles = data.get('value', [])
+            print(f"  ✅ Fetched {len(articles)} MDTI articles from Microsoft Graph API")
+            
+            # Format articles for dashboard
+            formatted_articles = []
+            for article in articles:
+                # Determine severity based on tags
+                tags = article.get('tags', [])
+                severity = 'Info'
+                if any(tag.lower() in ['critical', 'zero-day', 'ransomware'] for tag in tags):
+                    severity = 'Critical'
+                elif any(tag.lower() in ['high', 'apt', 'vulnerability'] for tag in tags):
+                    severity = 'High'
+                elif any(tag.lower() in ['phishing', 'malware'] for tag in tags):
+                    severity = 'Medium'
+                
+                formatted_articles.append({
+                    'id': article.get('id', ''),
+                    'title': article.get('title', 'Untitled'),
+                    'summary': (article.get('summary', '')[:150] + '...') if len(article.get('summary', '')) > 150 else article.get('summary', ''),
+                    'createdDateTime': article.get('createdDateTime', ''),
+                    'tags': tags[:3],  # Limit to 3 tags
+                    'severity': severity,
+                    'url': f"https://security.microsoft.com/threatanalytics3/{article.get('id', '')}",
+                    'source': 'microsoft_graph_api'
+                })
+            
+            return formatted_articles
+        
+        elif response.status_code == 403:
+            print("  ⚠️  Permission denied: ThreatIntelligence.Read.All permission required")
+            print("  💡 Add this permission in Azure Portal → App Registrations → API permissions")
+            return []
+        
+        elif response.status_code == 404:
+            print("  ⚠️  MDTI articles endpoint not available (requires Defender TI license)")
+            return []
+        
+        else:
+            print(f"  ⚠️  Failed to fetch MDTI articles: HTTP {response.status_code}")
+            return []
+            
+    except requests.exceptions.Timeout:
+        print("  ⚠️  Request timeout while fetching MDTI articles")
+        return []
+    except Exception as e:
+        print(f"  ⚠️  Error fetching MDTI articles: {e}")
+        return []
+
 def fetch_abuseipdb_stats(incidents):
     """
     Fetch IP reputation data from AbuseIPDB
@@ -973,6 +1121,7 @@ def generate_dashboard_data():
     secure_score_data = fetch_secure_score()
     daily_alerts = calculate_daily_alert_volume(alerts)
     threat_intel = fetch_threat_intelligence(incidents, alerts)
+    mdti_articles = fetch_mdti_articles()
     
     # Calculate metrics
     high_count = sum(1 for i in incidents if i.get('severity') == 'High')
@@ -1009,7 +1158,8 @@ def generate_dashboard_data():
         },
         'secureScoreTrend': [],  # Would fetch from Graph API history
         'dailyAlerts': daily_alerts,
-        'threatIntelligence': threat_intel
+        'threatIntelligence': threat_intel,
+        'mdtiArticles': mdti_articles
     }
     
     # Save to file
