@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"python.analysis.extraPaths": [
+			"c:\\Users\\kehusvik\\.vscode\\extensions\\ms-security.ms-sentinel-0.1.0\\python",
+			"c:\\Users\\kehusvik\\.vscode\\extensions\\ms-security.ms-sentinel-1.1.5\\python",
+			"c:\\Users\\kehusvik\\.vscode\\extensions\\ms-security.ms-sentinel-1.1.6\\python"
+		]
+	}
+}
