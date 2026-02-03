@@ -2,12 +2,12 @@
 
 Automated security dashboard with **Microsoft Defender**, **Microsoft Sentinel**, and **Threat Intelligence** integration. Features SQLite database for historical data, timeline filtering, and automated hourly refresh.
 
-> **🌟 Built to empower security teams with visibility and speed.** This dashboard brings together threat data from multiple sources into one unified view, helping SOC analysts detect, investigate, and respond to security incidents faster.
+> **🌟 Built to inspire.** This dashboard was created using **VIBE coding** (AI-assisted development) to demonstrate what's possible when building security operations dashboards. Use it as inspiration and a starting point for creating your own custom SOC dashboards tailored to your organization's needs.
 >
 > **⚠️ Important Notes:**
-> - **Not production-tested**: This dashboard is designed for demonstration and small-to-medium environments. It has not been stress-tested in large enterprise production deployments with thousands of concurrent incidents.
+> - **Not tested in large installations**: This dashboard is designed for demonstration and learning purposes. It has not been tested or validated in large enterprise production environments with high incident volumes.
 > - **Requires Microsoft Sentinel Data Lake**: This project requires an active **Microsoft Sentinel workspace** with the Data Lake feature enabled to query security data via KQL.
-> - **Development Stage**: Consider this a foundational framework that can be customized and hardened for your specific security operations needs.
+> - **Educational Framework**: Consider this a reference implementation that showcases integration patterns, data visualization techniques, and security operations workflows.
 
 ## 🚀 Quick Start
 
