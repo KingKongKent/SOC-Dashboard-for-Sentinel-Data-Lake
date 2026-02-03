@@ -435,3 +435,57 @@ This is a live SOC dashboard project. Contributions welcome for:
 - Custom visualization components
 - Performance optimizations
 - Security enhancements
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+### Third-Party Licenses
+
+This project uses the following open-source dependencies:
+
+| Package | License | Compatible |
+|---------|---------|------------|
+| Flask | BSD-3-Clause | ✅ Yes |
+| Werkzeug | BSD-3-Clause | ✅ Yes |
+| Jinja2 | BSD-3-Clause | ✅ Yes |
+| Flask-CORS | MIT | ✅ Yes |
+| Requests | Apache 2.0 | ✅ Yes |
+| python-dotenv | BSD-3-Clause | ✅ Yes |
+| schedule | MIT | ✅ Yes |
+| msal | MIT | ✅ Yes |
+| certifi | MPL-2.0 | ✅ Yes |
+| urllib3 | MIT | ✅ Yes |
+| Chart.js | MIT | ✅ Yes |
+
+**All dependencies use permissive open-source licenses compatible with commercial and non-commercial use.**
+
+### Microsoft API Usage
+
+This dashboard integrates with Microsoft services:
+- **Microsoft Defender** - Requires valid Microsoft 365 E5 or Defender subscription
+- **Microsoft Sentinel** - Requires Azure subscription and Sentinel workspace
+- **Microsoft Graph API** - Covered under Microsoft API Terms of Use
+- **Microsoft Entra ID** - Requires valid Azure AD/Entra ID tenant
+
+**Note:** Access to Microsoft APIs requires proper licensing from Microsoft. This project does not provide or include any Microsoft licenses.
+
+### External Threat Intelligence APIs
+
+Optional integrations with third-party services:
+- **VirusTotal** - Free tier available, API key required
+- **AbuseIPDB** - Free tier available, API key required  
+- **Cisco Talos** - May require enterprise license
+
+Check each service's terms of use and licensing requirements separately.
+
+## ⚖️ Disclaimer
+
+This software is provided "as is" without warranty. Users are responsible for:
+- Obtaining necessary Microsoft licenses and subscriptions
+- Complying with Microsoft API terms of service
+- Ensuring proper security and access controls
+- Meeting regulatory and compliance requirements
+- Obtaining API keys and licenses for third-party services
+
+The authors assume no liability for misuse or unauthorized access to security data.
