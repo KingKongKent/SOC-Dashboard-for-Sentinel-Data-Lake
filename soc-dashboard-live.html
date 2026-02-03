@@ -300,42 +300,12 @@
             <h2 style="color: white; margin: 30px 0 20px 0; font-size: 24px;">
                 📰 Latest Threat Intelligence - Microsoft Defender TI
             </h2>
-            <div class="kpi-grid" style="margin-bottom: 25px;">
-                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #d32f2f;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
-                    <div class="kpi-header">
-                        <span class="kpi-title" style="color: #d32f2f; font-size: 12px;">🚨 Critical</span>
-                        <span class="kpi-icon">🔒</span>
+            <div class="kpi-grid" id="mdtiArticlesContainer" style="margin-bottom: 25px;">
+                <!-- Articles will be dynamically loaded here -->
+                <div class="kpi-card" style="border-left: 4px solid #ccc;">
+                    <div style="text-align: center; padding: 20px; color: #999;">
+                        Loading threat intelligence articles...
                     </div>
-                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">Ransomware Groups Leverage Zero-Day Exploits</div>
-                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
-                    <small style="color: #999; font-size: 11px;">📅 2 days ago • 🏷️ Ransomware, Zero-Day</small>
-                </div>
-                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #ff9800;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
-                    <div class="kpi-header">
-                        <span class="kpi-title" style="color: #ff9800; font-size: 12px;">⚠️ High</span>
-                        <span class="kpi-icon">🌐</span>
-                    </div>
-                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">State-Sponsored APT Campaigns Targeting Cloud Infrastructure</div>
-                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
-                    <small style="color: #999; font-size: 11px;">📅 5 days ago • 🏷️ APT, Cloud Security</small>
-                </div>
-                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #0078d4;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
-                    <div class="kpi-header">
-                        <span class="kpi-title" style="color: #0078d4; font-size: 12px;">ℹ️ Info</span>
-                        <span class="kpi-icon">📧</span>
-                    </div>
-                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">Business Email Compromise Tactics and Detection Strategies</div>
-                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
-                    <small style="color: #999; font-size: 11px;">📅 1 week ago • 🏷️ Phishing, BEC</small>
-                </div>
-                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #388e3c;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
-                    <div class="kpi-header">
-                        <span class="kpi-title" style="color: #388e3c; font-size: 12px;">✅ Advisory</span>
-                        <span class="kpi-icon">🛡️</span>
-                    </div>
-                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">Best Practices for Securing Identity and Access Management</div>
-                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
-                    <small style="color: #999; font-size: 11px;">📅 2 weeks ago • 🏷️ IAM, Best Practices</small>
                 </div>
             </div>
 
@@ -510,11 +480,74 @@
             }
         }
 
+        function updateMDTIArticles(articles) {
+            const container = document.getElementById('mdtiArticlesContainer');
+            
+            if (!articles || articles.length === 0) {
+                container.innerHTML = `
+                    <div class="kpi-card" style="border-left: 4px solid #ff9800;">
+                        <div style="text-align: center; padding: 20px; color: #666;">
+                            <p style="margin-bottom: 10px;">📭 No MDTI articles available</p>
+                            <small style="color: #999;">Requires ThreatIntelligence.Read.All permission and Defender TI license</small>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            const severityColors = {
+                'Critical': { color: '#d32f2f', icon: '🚨', border: '#d32f2f' },
+                'High': { color: '#ff9800', icon: '⚠️', border: '#ff9800' },
+                'Medium': { color: '#0078d4', icon: 'ℹ️', border: '#0078d4' },
+                'Info': { color: '#388e3c', icon: '✅', border: '#388e3c' }
+            };
+            
+            const articlesHtml = articles.map(article => {
+                const severity = severityColors[article.severity] || severityColors['Info'];
+                const createdDate = new Date(article.createdDateTime);
+                const daysAgo = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
+                const timeAgo = daysAgo === 0 ? 'Today' : 
+                               daysAgo === 1 ? '1 day ago' : 
+                               daysAgo < 7 ? `${daysAgo} days ago` :
+                               daysAgo < 14 ? '1 week ago' : `${Math.floor(daysAgo / 7)} weeks ago`;
+                
+                const tags = article.tags.slice(0, 2).join(', ') || 'General';
+                
+                return `
+                    <div class="kpi-card" style="cursor: pointer; border-left: 4px solid ${severity.border};" 
+                         onclick="window.open('${article.url}', '_blank')" 
+                         title="Click to view full article in Microsoft Defender portal">
+                        <div class="kpi-header">
+                            <span class="kpi-title" style="color: ${severity.color}; font-size: 12px;">
+                                ${severity.icon} ${article.severity}
+                            </span>
+                            <span class="kpi-icon">📰</span>
+                        </div>
+                        <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4; min-height: 44px;">
+                            ${article.title}
+                        </div>
+                        <small style="color: #666; display: block; margin-bottom: 8px;">
+                            Microsoft Defender Threat Intelligence
+                        </small>
+                        <small style="color: #999; font-size: 11px;">
+                            📅 ${timeAgo} • 🏷️ ${tags}
+                        </small>
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = articlesHtml;
+            console.log(`✅ Rendered ${articles.length} MDTI articles`);
+        }
+
         function updateDashboard(data) {
             console.log('📊 Updating dashboard with data:', data);
             
             // Store dashboard data globally for modal access
             window.dashboardData = data;
+            
+            // Update MDTI Articles
+            updateMDTIArticles(data.mdtiArticles || []);
             
             // Update KPIs
             document.getElementById('secureScore').textContent = data.secureScore?.current || '--';
