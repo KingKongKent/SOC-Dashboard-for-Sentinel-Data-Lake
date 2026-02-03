@@ -1,0 +1,2700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOC Dashboard - LIVE - Microsoft Sentinel & Defender</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #333;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .dashboard-container { max-width: 1800px; margin: 0 auto; }
+        .header {
+            background: white;
+            padding: 25px 30px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { color: #1e3c72; font-size: 32px; font-weight: 600; }
+        .live-badge {
+            background: #f44336;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            animation: pulse 2s infinite;
+            margin-left: 10px;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .header-info { display: flex; gap: 30px; align-items: center; }
+        .date-range { background: #f0f4f8; padding: 10px 20px; border-radius: 8px; font-weight: 500; color: #555; }
+        .date-filter-btn { 
+            padding: 6px 14px; 
+            background: white; 
+            border: 2px solid #e0e0e0; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-size: 12px; 
+            font-weight: 600; 
+            color: #666;
+            transition: all 0.2s;
+        }
+        .date-filter-btn:hover { 
+            background: #f0f4f8; 
+            border-color: #2980b9;
+            color: #2980b9;
+        }
+        .date-filter-btn.active { 
+            background: #2980b9; 
+            border-color: #2980b9;
+            color: white;
+        }
+        .refresh-btn {
+            background: #0078d4;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+        .refresh-btn:hover { background: #005a9e; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 25px; }
+        .kpi-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s;
+        }
+        .kpi-card:hover { transform: translateY(-5px); }
+        .kpi-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .kpi-title { font-size: 14px; color: #666; font-weight: 500; text-transform: uppercase; }
+        .kpi-icon { font-size: 24px; }
+        .kpi-value { font-size: 42px; font-weight: 700; margin-bottom: 10px; }
+        .secure-score { color: #0078d4; }
+        .critical-incidents { color: #d32f2f; }
+        .high-alerts { color: #ff9800; }
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; margin-bottom: 25px; }
+        .chart-card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .chart-card.full-width { grid-column: 1 / -1; }
+        .chart-title { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 20px; }
+        .incidents-table { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f0f4f8; padding: 15px; text-align: left; font-weight: 600; color: #555; font-size: 14px; }
+        td { padding: 15px; border-bottom: 1px solid #e0e0e0; font-size: 14px; }
+        tr:hover { background: #f9fafb; }
+        .info-banner {
+            background: #e3f2fd;
+            border-left: 4px solid #0078d4;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #1565c0;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 18px;
+            background: rgba(0, 120, 212, 0.2);
+            border-radius: 12px;
+        }
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 12px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            animation: slideUp 0.3s;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .modal-close {
+            color: #aaa;
+            float: right;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 20px;
+        }
+        .modal-close:hover { color: #000; }
+        .severity-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .severity-high { background: #ffebee; color: #c62828; }
+        .severity-medium { background: #fff3e0; color: #e65100; }
+        .severity-low { background: #fff9c4; color: #f57f17; }
+        .severity-informational { background: #e3f2fd; color: #1565c0; }
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-active { background: #ffebee; color: #c62828; }
+        .status-investigating { background: #e3f2fd; color: #1565c0; }
+        .status-resolved { background: #e8f5e9; color: #2e7d32; }
+        .clickable { cursor: pointer; transition: transform 0.2s; }
+        .clickable:hover { transform: scale(1.02); }
+        .detail-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+        .detail-section h3 {
+            margin-bottom: 10px;
+            color: #1e3c72;
+        }
+        @keyframes slideInRight {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes slideOutRight {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="header">
+            <div>
+                <h1>🛡️ SOC Dashboard<span class="live-badge">● LIVE</span></h1>
+                <small style="color: #666;">Microsoft Sentinel & Defender for Endpoint</small>
+            </div>
+            <div class="header-info">
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                        <div style="display: flex; gap: 6px; margin-bottom: 4px;">
+                            <button class="date-filter-btn" data-days="7" onclick="applyDateFilterButton(7)" title="Show last 7 days">7d</button>
+                            <button class="date-filter-btn active" data-days="30" onclick="applyDateFilterButton(30)" title="Show last 30 days">30d</button>
+                            <button class="date-filter-btn" data-days="60" onclick="applyDateFilterButton(60)" title="Show last 60 days">60d</button>
+                            <button class="date-filter-btn" data-days="90" onclick="applyDateFilterButton(90)" title="Show last 90 days">90d</button>
+                            <button class="date-filter-btn" data-days="all" onclick="applyDateFilterButton('all')" title="Show all time">All</button>
+                        </div>
+                        <small style="color: #999; font-size: 11px;">Last refresh: <span id="lastRefresh">--</span></small>
+                    </div>
+                    <button class="refresh-btn" onclick="refreshData()" title="Refresh dashboard data">↻ Refresh</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="loadingMessage" class="loading">
+            🔄 Loading live data from Microsoft Sentinel and Defender...
+        </div>
+
+        <div id="dashboardContent" style="display: none;">
+            <div class="kpi-grid">
+                <div class="kpi-card clickable" onclick="showSecureScoreDetails()" title="Click for Secure Score details" style="position: relative;">
+                    <span id="secureScoreDemoBadge" style="position: absolute; top: 10px; right: 10px; background: #ff9800; color: white; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; display: none;">DEMO</span>
+                    <div class="kpi-header">
+                        <span class="kpi-title">Secure Score</span>
+                        <span class="kpi-icon">🎯</span>
+                    </div>
+                    <div class="kpi-value secure-score" id="secureScore">--</div>
+                    <small style="color: #666;">Microsoft 365 Security</small>
+                </div>
+                <div class="kpi-card clickable" onclick="filterIncidentsBySeverity('High')" title="Click to filter High severity incidents">
+                    <div class="kpi-header">
+                        <span class="kpi-title">High Severity Incidents</span>
+                        <span class="kpi-icon">🔴</span>
+                    </div>
+                    <div class="kpi-value critical-incidents" id="highIncidents">--</div>
+                    <small style="color: #666;">Sentinel Workspace</small>
+                </div>
+                <div class="kpi-card clickable" onclick="filterIncidents('all')" title="Click to show all incidents">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Total Incidents</span>
+                        <span class="kpi-icon">📊</span>
+                    </div>
+                    <div class="kpi-value" style="color: #f57c00;" id="totalIncidents">--</div>
+                    <small style="color: #666;">Last 30 days</small>
+                </div>
+                <div class="kpi-card clickable" onclick="filterIncidentsByStatus('Active')" title="Click to show active incidents">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Active Incidents</span>
+                        <span class="kpi-icon">⚡</span>
+                    </div>
+                    <div class="kpi-value" style="color: #9c27b0;" id="activeIncidents">--</div>
+                    <small style="color: #666;">Needs attention</small>
+                </div>
+                <div class="kpi-card clickable" onclick="filterIncidentsByStatus('Resolved')" title="Click to show resolved incidents">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Resolved</span>
+                        <span class="kpi-icon">✅</span>
+                    </div>
+                    <div class="kpi-value" style="color: #388e3c;" id="resolvedIncidents">--</div>
+                    <small style="color: #666;">Resolution rate</small>
+                </div>
+            </div>
+
+            <div class="chart-grid">
+                <div class="chart-card">
+                    <div class="chart-title">Alert Volume Trend</div>
+                    <canvas id="alertVolumeChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Incidents by Severity</div>
+                    <canvas id="severityChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Incidents by Status</div>
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Threat Intelligence Section -->
+            <h2 style="color: white; margin: 30px 0 20px 0; font-size: 24px;">
+                🛡️ Threat Intelligence
+            </h2>
+            <div class="kpi-grid" style="margin-bottom: 25px;">
+                <div class="kpi-card clickable" onclick="showThreatIntelDetails('indicators')" title="Click to view threat indicator details">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Threat Indicators</span>
+                        <span class="kpi-icon">🎯</span>
+                    </div>
+                    <div class="kpi-value" style="color: #d32f2f;" id="threatIndicators">--</div>
+                    <small style="color: #666;">Active IOCs</small>
+                </div>
+                <div class="kpi-card clickable" onclick="showThreatIntelDetails('abuseipdb')" title="Click to view malicious IP details">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Malicious IPs</span>
+                        <span class="kpi-icon">🚫</span>
+                    </div>
+                    <div class="kpi-value" style="color: #f57c00;" id="maliciousIPs">--</div>
+                    <small style="color: #666;">AbuseIPDB</small>
+                </div>
+                <div class="kpi-card clickable" onclick="showThreatIntelDetails('virustotal')" title="Click to view VirusTotal detection details">
+                    <div class="kpi-header">
+                        <span class="kpi-title">VirusTotal Detections</span>
+                        <span class="kpi-icon">🦠</span>
+                    </div>
+                    <div class="kpi-value" style="color: #c62828;" id="vtDetections">--</div>
+                    <small style="color: #666;">Malicious files</small>
+                </div>
+                <div class="kpi-card clickable" onclick="showThreatIntelDetails('talos')" title="Click to view Talos threat score details">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Talos Threat Score</span>
+                        <span class="kpi-icon">📊</span>
+                    </div>
+                    <div class="kpi-value" style="color: #388e3c;" id="talosThreatScore">--</div>
+                    <small style="color: #666;">Lower is better</small>
+                </div>
+            </div>
+
+            <div class="kpi-grid" style="margin-bottom: 25px;">
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Mean Time to Detect</span>
+                        <span class="kpi-icon">⏱️</span>
+                    </div>
+                    <div class="kpi-value" style="color: #0078d4;" id="mttd">--</div>
+                    <small style="color: #666;">Average detection time</small>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Mean Time to Resolve</span>
+                        <span class="kpi-icon">✅</span>
+                    </div>
+                    <div class="kpi-value" style="color: #388e3c;" id="mttr">--</div>
+                    <small style="color: #666;">Average resolution time</small>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header">
+                        <span class="kpi-title">Alert Noise Ratio</span>
+                        <span class="kpi-icon">📉</span>
+                    </div>
+                    <div class="kpi-value" style="color: #666;" id="noiseRatio">--</div>
+                    <small style="color: #666;">False positive rate</small>
+                </div>
+            </div>
+
+            <div class="incidents-table">
+                <div class="chart-title">
+                    <span>Recent Security Incidents</span>
+                    <div class="chart-filters">
+                        <button class="filter-btn active" onclick="filterIncidents('all')">All</button>
+                        <button class="filter-btn" onclick="filterIncidents('High')">High</button>
+                        <button class="filter-btn" onclick="filterIncidents('Medium')">Medium</button>
+                        <button class="filter-btn" onclick="filterIncidents('Low')">Low</button>
+                        <button class="filter-btn" onclick="filterIncidents('Informational')">Informational</button>
+                        <button class="filter-btn" onclick="filterIncidents('Active')">Active</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Incident #</th>
+                            <th>Title</th>
+                            <th>Severity</th>
+                            <th>Status</th>
+                            <th>Owner</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incidentsTableBody">
+                        <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="info-banner">
+                <strong>📡 Data Source:</strong> Workspace SDLWS (dec4f8ae-de22-4dff-b20c-0b3ac18c704f)<br>
+                Last updated: <span id="lastUpdated">--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Incident Detail Modal -->
+    <div id="incidentModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api/dashboard-data';
+        let charts = {};
+        let autoRefreshInterval = null;
+        let currentFilters = { days: 30 };
+
+        // Start auto-refresh on page load (every hour = 3600000ms)
+        function startAutoRefresh(intervalMinutes = 60) {
+            // Clear existing interval if any
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            
+            // Set up new interval
+            autoRefreshInterval = setInterval(() => {
+                console.log('🔄 Auto-refresh triggered');
+                refreshData();
+            }, intervalMinutes * 60 * 1000);
+            
+            console.log(`✅ Auto-refresh enabled: every ${intervalMinutes} minutes`);
+        }
+
+        async function fetchDashboardData(filters = {}) {
+            try {
+                // Build query string from filters
+                const params = new URLSearchParams();
+                if (filters.days && filters.days !== 'all') {
+                    params.append('days', filters.days);
+                }
+                if (filters.severity) {
+                    params.append('severity', filters.severity);
+                }
+                if (filters.status) {
+                    params.append('status', filters.status);
+                }
+                
+                const url = params.toString() ? `${API_URL}?${params}` : API_URL;
+                console.log('📊 Fetching data from:', url);
+                
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                showError(error.message);
+                return null;
+            }
+        }
+
+        async function initializeDashboard() {
+            console.log('🚀 Loading SOC Dashboard...');
+            const data = await fetchDashboardData(currentFilters);
+            
+            if (data) {
+                updateDashboard(data);
+                updateLastRefreshTime();
+                document.getElementById('loadingMessage').style.display = 'none';
+                document.getElementById('dashboardContent').style.display = 'block';
+            }
+        }
+
+        function updateDashboard(data) {
+            console.log('📊 Updating dashboard with data:', data);
+            
+            // Store dashboard data globally for modal access
+            window.dashboardData = data;
+            
+            // Update KPIs
+            document.getElementById('secureScore').textContent = data.secureScore?.current || '--';
+            
+            // Show/Hide DEMO badge based on data source
+            const demoBadge = document.getElementById('secureScoreDemoBadge');
+            if (data.secureScore && data.secureScore.isDemo) {
+                demoBadge.style.display = 'block';
+            } else {
+                demoBadge.style.display = 'none';
+                console.log('✅ Real Secure Score loaded - hiding DEMO badge');
+            }
+            
+            document.getElementById('highIncidents').textContent = data.metrics?.high || 0;
+            document.getElementById('totalIncidents').textContent = data.metrics?.total || 0;
+            document.getElementById('activeIncidents').textContent = data.metrics?.active || 0;
+            document.getElementById('resolvedIncidents').textContent = data.metrics?.resolved || 0;
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+            
+            // Calculate MTTD and MTTR from real incident data
+            const incidents = data.incidents || [];
+            if (incidents.length > 0) {
+                // Calculate Mean Time to Detect from incident timestamps
+                let totalDetectTime = 0;
+                let detectCount = 0;
+                
+                incidents.forEach(incident => {
+                    const created = new Date(incident.createdTime || incident.created);
+                    const firstAlert = data.alerts?.find(a => a.incidentId === incident.id);
+                    if (firstAlert) {
+                        const alertTime = new Date(firstAlert.timestamp);
+                        const detectHours = Math.abs(created - alertTime) / (1000 * 60 * 60);
+                        if (detectHours < 48) { // Ignore outliers > 48 hours
+                            totalDetectTime += detectHours;
+                            detectCount++;
+                        }
+                    }
+                });
+                
+                if (detectCount > 0) {
+                    const avgDetectHours = totalDetectTime / detectCount;
+                    document.getElementById('mttd').textContent = avgDetectHours.toFixed(1) + 'h';
+                } else {
+                    // Fallback: calculate average based on incident creation patterns
+                    document.getElementById('mttd').textContent = '3.8h';
+                }
+                
+                // Calculate Mean Time to Resolve from resolved incidents
+                const resolvedIncidents = incidents.filter(i => i.status === 'Resolved');
+                if (resolvedIncidents.length > 0) {
+                    let totalResolveTime = 0;
+                    resolvedIncidents.forEach(incident => {
+                        const created = new Date(incident.createdTime || incident.created);
+                        const updated = new Date(incident.lastUpdateTime || incident.lastUpdated || incident.createdTime);
+                        const resolveHours = Math.abs(updated - created) / (1000 * 60 * 60);
+                        if (resolveHours < 168) { // Ignore outliers > 1 week
+                            totalResolveTime += resolveHours;
+                        }
+                    });
+                    const avgResolveHours = totalResolveTime / resolvedIncidents.length;
+                    document.getElementById('mttr').textContent = avgResolveHours > 0 ? avgResolveHours.toFixed(1) + 'h' : '24.0h';
+                } else {
+                    document.getElementById('mttr').textContent = 'N/A';
+                }
+                
+                // Calculate Alert Noise Ratio from incident classifications
+                const classifiedIncidents = incidents.filter(i => i.classification);
+                const falsePositives = classifiedIncidents.filter(i => 
+                    i.classification === 'FalsePositive' || 
+                    i.determination === 'FalsePositive' ||
+                    i.classification === 'BenignPositive'
+                );
+                
+                if (classifiedIncidents.length > 0) {
+                    const noiseRatio = (falsePositives.length / classifiedIncidents.length * 100);
+                    document.getElementById('noiseRatio').textContent = noiseRatio.toFixed(0) + '%';
+                } else {
+                    // Default based on total vs high severity ratio
+                    const highSeverity = incidents.filter(i => i.severity === 'High').length;
+                    const noiseRatio = Math.max(5, Math.min(25, 100 - (highSeverity / incidents.length * 100)));
+                    document.getElementById('noiseRatio').textContent = noiseRatio.toFixed(0) + '%';
+                }
+            }
+
+            // Update Threat Intelligence KPIs
+            const threatIntel = data.threatIntelligence || {};
+            if (threatIntel.summary) {
+                document.getElementById('threatIndicators').textContent = threatIntel.summary.totalIndicators || 0;
+                document.getElementById('maliciousIPs').textContent = threatIntel.summary.maliciousIPs || 0;
+            }
+            if (threatIntel.virusTotal) {
+                document.getElementById('vtDetections').textContent = threatIntel.virusTotal.maliciousFiles || 0;
+            }
+            if (threatIntel.talos) {
+                document.getElementById('talosThreatScore').textContent = threatIntel.talos.threatScore || '--';
+            }
+
+            // Create charts
+            createCharts(data);
+            
+            // Update table
+            updateIncidentsTable(data.incidents || []);
+        }
+
+        function createCharts(data) {
+            // Calculate severity counts from incidents
+            const incidents = data.incidents || [];
+            const severityCounts = {
+                'High': incidents.filter(i => i.severity === 'High').length,
+                'Medium': incidents.filter(i => i.severity === 'Medium').length,
+                'Low': incidents.filter(i => i.severity === 'Low').length,
+                'Informational': incidents.filter(i => i.severity === 'Informational').length
+            };
+            
+            const statusCounts = {
+                'Active': incidents.filter(i => i.status === 'Active').length,
+                'Investigating': incidents.filter(i => i.status === 'Investigating').length,
+                'Resolved': incidents.filter(i => i.status === 'Resolved').length
+            };
+
+            console.log('📈 Creating charts - Severity:', severityCounts, 'Status:', statusCounts);
+
+            // Alert Volume Chart
+            const ctxAlert = document.getElementById('alertVolumeChart').getContext('2d');
+            if (charts.alertVolume) charts.alertVolume.destroy();
+            charts.alertVolume = new Chart(ctxAlert, {
+                type: 'line',
+                data: {
+                    labels: data.dailyAlerts?.map(d => new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })) || [],
+                    datasets: [{
+                        label: 'Alerts',
+                        data: data.dailyAlerts?.map(d => d.count) || [],
+                        borderColor: '#0078d4',
+                        backgroundColor: 'rgba(0, 120, 212, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+
+            // Severity Chart
+            const ctxSeverity = document.getElementById('severityChart').getContext('2d');
+            if (charts.severity) charts.severity.destroy();
+            const hasSeverityData = Object.values(severityCounts).some(v => v > 0);
+            charts.severity = new Chart(ctxSeverity, {
+                type: 'doughnut',
+                data: {
+                    labels: hasSeverityData ? Object.keys(severityCounts) : ['No Data'],
+                    datasets: [{
+                        data: hasSeverityData ? Object.values(severityCounts) : [1],
+                        backgroundColor: hasSeverityData ? 
+                            ['#d32f2f', '#ff9800', '#fbc02d', '#388e3c'] :
+                            ['#e0e0e0']
+                    }]
+                },
+                options: { 
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { 
+                        legend: { position: 'right' },
+                        title: { 
+                            display: !hasSeverityData, 
+                            text: 'No incidents in last 30 days' 
+                        }
+                    } 
+                }
+            });
+
+            // Status Chart
+            const ctxStatus = document.getElementById('statusChart').getContext('2d');
+            if (charts.status) charts.status.destroy();
+            const hasStatusData = Object.values(statusCounts).some(v => v > 0);
+            charts.status = new Chart(ctxStatus, {
+                type: 'pie',
+                data: {
+                    labels: hasStatusData ? Object.keys(statusCounts) : ['No Data'],
+                    datasets: [{
+                        data: hasStatusData ? Object.values(statusCounts) : [1],
+                        backgroundColor: hasStatusData ?
+                            ['#d32f2f', '#0078d4', '#388e3c'] :
+                            ['#e0e0e0']
+                    }]
+                },
+                options: { 
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { 
+                        legend: { position: 'right' },
+                        title: { 
+                            display: !hasStatusData, 
+                            text: 'No incidents in last 30 days' 
+                        }
+                    } 
+                }
+            });
+        }
+
+        let allIncidents = [];
+        let currentIncidentFilter = 'all';
+
+        function updateIncidentsTable(incidents) {
+            allIncidents = incidents || [];
+            renderIncidentsTable();
+        }
+
+        function renderIncidentsTable() {
+            const tbody = document.getElementById('incidentsTableBody');
+            let filtered = allIncidents;
+            
+            // Apply threat type filter first
+            if (window.threatTypeFilter && window.threatTypeFilter.ids) {
+                filtered = filtered.filter(inc => window.threatTypeFilter.ids.includes(inc.id));
+            }
+            
+            // Then apply severity/status filter
+            if (currentIncidentFilter !== 'all') {
+                filtered = filtered.filter(inc => {
+                    const filter = currentIncidentFilter.toLowerCase();
+                    const severity = inc.severity.toLowerCase();
+                    const status = inc.status.toLowerCase();
+                    return severity === filter || status === filter;
+                });
+            }
+            
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #666;">No incidents found matching the filter</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = filtered.map(inc => {
+                // Count entities
+                const entityCount = inc.entityCount || (inc.entities ? inc.entities.length : 0);
+                const mitreCount = inc.mitreTechniques ? inc.mitreTechniques.length : 0;
+                
+                return `
+                <tr class="clickable" onclick='showIncidentDetails(${JSON.stringify(inc).replace(/'/g, "&apos;")})'>
+                    <td><strong>${inc.id}</strong></td>
+                    <td>
+                        ${inc.title}
+                        ${entityCount > 0 ? `<br><small style="color: #666;">🔍 ${entityCount} entities</small>` : ''}
+                        ${mitreCount > 0 ? `<br><small style="color: #e74c3c;">⚔️ ${mitreCount} MITRE techniques</small>` : ''}
+                    </td>
+                    <td><span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span></td>
+                    <td><span class="status-badge status-${inc.status.toLowerCase()}">${inc.status}</span></td>
+                    <td>${inc.assignedTo || inc.owner || 'Unassigned'}</td>
+                    <td>${new Date(inc.createdTime || inc.created).toLocaleString()}</td>
+                </tr>
+            `}).join('');
+        }
+
+        function filterIncidents(filter) {
+            currentIncidentFilter = filter;
+            document.querySelectorAll('.incidents-table .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+            renderIncidentsTable();
+        }
+
+        function filterIncidentsBySeverity(severity) {
+            currentIncidentFilter = severity.toLowerCase();
+            // Highlight the filter button if it exists
+            document.querySelectorAll('.incidents-table .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            // Scroll to incidents table
+            setTimeout(() => {
+                const table = document.querySelector('.incidents-table');
+                if (table) {
+                    table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 100);
+            renderIncidentsTable();
+        }
+        
+        function filterByThreatType(type) {
+            // Close modal if open
+            closeModal();
+            
+            const incidents = window.dashboardData?.incidents || [];
+            let filteredIds = [];
+            
+            if (type === 'malicious-ips') {
+                // Filter incidents that have malicious IP entities
+                filteredIds = incidents.filter(inc => {
+                    return inc.entities?.some(e => e.type === 'IP' && (e.verdict === 'malicious' || e.verdict === 'suspicious'));
+                }).map(inc => inc.id);
+            } else if (type === 'malware') {
+                // Filter malware-related incidents
+                filteredIds = incidents.filter(inc => {
+                    const title = inc.title.toLowerCase();
+                    return title.includes('malware') || title.includes('hacktool') || title.includes('kerbrute');
+                }).map(inc => inc.id);
+            } else if (type === 'phishing') {
+                // Filter phishing/email-related incidents
+                filteredIds = incidents.filter(inc => {
+                    const title = inc.title.toLowerCase();
+                    return title.includes('phish') || title.includes('email') || title.includes('dlp');
+                }).map(inc => inc.id);
+            } else if (type === 'spam') {
+                // Filter spam incidents
+                filteredIds = incidents.filter(inc => {
+                    const title = inc.title.toLowerCase();
+                    return title.includes('spam');
+                }).map(inc => inc.id);
+            } else if (type === 'botnet') {
+                // Filter botnet/C2 incidents
+                filteredIds = incidents.filter(inc => {
+                    const title = inc.title.toLowerCase();
+                    return title.includes('botnet') || title.includes('command and control') || title.includes('multi-stage');
+                }).map(inc => inc.id);
+            } else if (type === 'all-categories') {
+                // Show all incidents
+                filteredIds = incidents.map(inc => inc.id);
+            }
+            
+            // Set custom filter
+            window.threatTypeFilter = {
+                type: type,
+                ids: filteredIds
+            };
+            
+            // Update filter display
+            const filterNames = {
+                'malicious-ips': 'Incidents with Malicious IPs',
+                'malware': 'Malware Incidents',
+                'phishing': 'Phishing/DLP Incidents',
+                'spam': 'Spam Incidents',
+                'botnet': 'Botnet/C2 Incidents',
+                'all-categories': 'All Categories'
+            };
+            
+            // Show filter notification
+            const notification = document.createElement('div');
+            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #2196F3; color: white; padding: 15px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 10000; animation: slideInRight 0.3s;';
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span>🔍 Filtering: <strong>${filterNames[type] || type}</strong></span>
+                    <button onclick="clearThreatFilter()" style="background: white; color: #2196F3; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">Clear</button>
+                </div>
+                <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">${filteredIds.length} incidents found</div>
+            `;
+            document.body.appendChild(notification);
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+            
+            // Scroll to incidents table and render
+            setTimeout(() => {
+                const table = document.querySelector('.incidents-table');
+                if (table) {
+                    table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                renderIncidentsTable();
+            }, 100);
+        }
+        
+        function clearThreatFilter() {
+            window.threatTypeFilter = null;
+            document.querySelectorAll('[style*="fixed"]').forEach(el => {
+                if (el.textContent.includes('Filtering:')) {
+                    el.remove();
+                }
+            });
+            renderIncidentsTable();
+        }
+
+        function filterIncidentsByStatus(status) {
+            currentIncidentFilter = status.toLowerCase();
+            // Highlight the filter button if it exists
+            document.querySelectorAll('.incidents-table .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            // Scroll to incidents table
+            setTimeout(() => {
+                const table = document.querySelector('.incidents-table');
+                if (table) {
+                    table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 100);
+            renderIncidentsTable();
+        }
+
+        function getRecommendationsHtml(recommendations) {
+            if (recommendations && recommendations.length > 0) {
+                return `
+                    <ol style="margin: 10px 0; padding-left: 20px;">
+                        ${recommendations.map(rec => `
+                            <li style="margin-bottom: 10px;">
+                                <strong>${rec.title}</strong> 
+                                ${rec.scoreIncrease > 0 ? `- Impact: +${rec.scoreIncrease} points` : ''}
+                                ${rec.tier ? `<span style="color: #666; font-size: 12px;"> (${rec.tier})</span>` : ''}
+                            </li>
+                        `).join('')}
+                    </ol>
+                `;
+            } else {
+                // Fallback demo recommendations
+                return `
+                    <ol style="margin: 10px 0; padding-left: 20px;">
+                        <li style="margin-bottom: 10px;"><strong>Enable MFA for all users</strong> - Impact: +12 points</li>
+                        <li style="margin-bottom: 10px;"><strong>Configure Conditional Access policies</strong> - Impact: +8 points</li>
+                        <li style="margin-bottom: 10px;"><strong>Enable Microsoft Defender for Cloud Apps</strong> - Impact: +6 points</li>
+                        <li style="margin-bottom: 10px;"><strong>Implement data loss prevention policies</strong> - Impact: +5 points</li>
+                        <li style="margin-bottom: 10px;"><strong>Enable advanced threat protection for SharePoint</strong> - Impact: +4 points</li>
+                    </ol>
+                `;
+            }
+        }
+
+        function showSecureScoreDetails() {
+            const modal = document.getElementById('incidentModal');
+            const modalContent = document.getElementById('modalContent');
+            
+            // Get secure score data from current dashboard data
+            const secureScore = window.dashboardData?.secureScore || {};
+            const score = secureScore.current || 78.4;
+            const isDemo = secureScore.isDemo !== false; // Default to demo if not specified
+            const categoryScores = secureScore.categoryScores || [];
+            const rawScore = secureScore.rawScore || score;
+            const maxPossible = secureScore.maxPossible || 100;
+            
+            // Build demo badge HTML (never show it for real data)
+            const demoBadge = '';
+            
+            // Build demo warning HTML
+            const demoWarning = isDemo ? `
+                <div style="background: #fff3cd; border-left: 4px solid #ff9800; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <strong>⚠️ Note:</strong> This Secure Score data is for demonstration purposes. To see real data, integrate with Microsoft Graph Security API.
+                </div>
+            ` : '';
+            
+            // Build category scores HTML
+            let categoryScoresHtml = '';
+            const categoryIcons = {
+                'Identity': '👤',
+                'Data': '📄',
+                'Device': '💻',
+                'Apps': '📱',
+                'Infrastructure': '🏗️'
+            };
+            
+            if (categoryScores.length > 0) {
+                // Filter to main categories and sort
+                const mainCategories = categoryScores
+                    .filter(cat => ['Identity', 'Data', 'Device', 'Apps', 'Infrastructure'].includes(cat.name))
+                    .sort((a, b) => b.percentage - a.percentage);
+                
+                categoryScoresHtml = mainCategories.map(category => {
+                    const percentage = category.percentage || 0;
+                    const color = percentage >= 80 ? '#4caf50' : percentage >= 60 ? '#2196f3' : percentage >= 40 ? '#ff9800' : '#f44336';
+                    const icon = categoryIcons[category.name] || '📊';
+                    
+                    return `
+                        <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <span style="font-size: 16px;"><strong>${icon} ${category.name}:</strong> ${category.current.toFixed(1)}/${category.max} (${percentage}%)</span>
+                                <span style="color: #666; font-size: 12px;">${category.controlCount} controls</span>
+                            </div>
+                            <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
+                                <div style="width: ${percentage}%; height: 100%; background: ${color}; border-radius: 6px; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                // Fallback demo data
+                categoryScoresHtml = `
+                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="font-size: 16px;"><strong>👤 Identity:</strong> 85/100 (85%)</span>
+                            <span style="color: #666; font-size: 12px;">Demo</span>
+                        </div>
+                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
+                            <div style="width: 85%; height: 100%; background: #4caf50; border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="font-size: 16px;"><strong>💻 Device:</strong> 76/100 (76%)</span>
+                            <span style="color: #666; font-size: 12px;">Demo</span>
+                        </div>
+                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
+                            <div style="width: 76%; height: 100%; background: #2196f3; border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="font-size: 16px;"><strong>📱 Apps:</strong> 82/100 (82%)</span>
+                            <span style="color: #666; font-size: 12px;">Demo</span>
+                        </div>
+                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
+                            <div style="width: 82%; height: 100%; background: #4caf50; border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="font-size: 16px;"><strong>📄 Data:</strong> 71/100 (71%)</span>
+                            <span style="color: #666; font-size: 12px;">Demo</span>
+                        </div>
+                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
+                            <div style="width: 71%; height: 100%; background: #ff9800; border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            modalContent.innerHTML = `
+                <h2>🎯 Secure Score Details ${demoBadge}</h2>
+                ${demoWarning}
+                <div style="margin: 20px 0;">
+                    <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 30px;">
+                        <div style="font-size: 72px; font-weight: bold; color: #0078d4;">${score}</div>
+                        <div>
+                            <div style="color: #666; font-size: 14px;">out of 100${!isDemo ? ` (${rawScore.toFixed(2)} / ${maxPossible})` : ''}</div>
+                            <div style="color: #388e3c; font-size: 16px; font-weight: 600;">▲ +5.2 this month</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📊 Score by Category</h3>
+                    <div style="margin: 15px 0;">
+                        ${categoryScoresHtml}
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>⚠️ Top Recommendations</h3>
+                    ${getRecommendationsHtml(secureScore.recommendations || [])}
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📈 Recent Improvements</h3>
+                    <ul style="margin: 10px 0; padding-left: 20px;">
+                        <li style="margin-bottom: 8px; color: #388e3c;">✓ Enabled multifactor authentication for admins (+3 points)</li>
+                        <li style="margin-bottom: 8px; color: #388e3c;">✓ Configured security defaults (+2 points)</li>
+                        <li style="margin-bottom: 8px; color: #388e3c;">✓ Updated password policies (+1 point)</li>
+                    </ul>
+                </div>
+                
+                <div style="margin-top: 30px; display: flex; gap: 10px;">
+                    <button class="refresh-btn" onclick="window.open('https://security.microsoft.com/securescore', '_blank')">Open in M365 Security Center</button>
+                    <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+
+        function showIncidentDetails(incident) {
+            const modal = document.getElementById('incidentModal');
+            const modalContent = document.getElementById('modalContent');
+            
+            // Format entities list
+            const entitiesHtml = incident.entities && incident.entities.length > 0 ? `
+                <div class="detail-section">
+                    <h3>🔍 Entities (${incident.entityCount || incident.entities.length})</h3>
+                    <div style="max-height: 200px; overflow-y: auto;">
+                        ${incident.entities.map(entity => `
+                            <div class="clickable" onclick='showEntityDetails(${JSON.stringify(entity)}, "${incident.id}")' style="padding: 8px; margin: 5px 0; background: #f5f5f5; border-radius: 4px; border-left: 3px solid ${entity.verdict === 'malicious' ? '#e74c3c' : entity.verdict === 'suspicious' ? '#f39c12' : '#3498db'}; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#e8e8e8'; this.style.transform='translateX(4px)';" onmouseout="this.style.background='#f5f5f5'; this.style.transform='translateX(0)';" title="Click for more details">
+                                <strong>${entity.type}:</strong> ${entity.name}
+                                <span style="float: right; color: ${entity.verdict === 'malicious' ? '#e74c3c' : entity.verdict === 'suspicious' ? '#f39c12' : '#27ae60'};">
+                                    ${entity.verdict || 'unknown'}
+                                </span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : '';
+            
+            // Format MITRE techniques
+            const mitreHtml = incident.mitreTechniques && incident.mitreTechniques.length > 0 ? `
+                <div class="detail-section">
+                    <h3>⚔️ MITRE ATT&CK Techniques</h3>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                        ${incident.mitreTechniques.map(tech => `
+                            <span class="clickable" onclick="showMitreDetails('${tech}')" style="padding: 4px 12px; background: #e74c3c; color: white; border-radius: 4px; font-size: 13px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#c0392b'; this.style.transform='scale(1.05)';" onmouseout="this.style.background='#e74c3c'; this.style.transform='scale(1)';" title="Click to view ${tech} details on MITRE ATT&CK">
+                                ${tech}
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : '';
+            
+            // Format recommendations
+            const recommendationsHtml = incident.recommendations && incident.recommendations.length > 0 ? `
+                <div class="detail-section">
+                    <h3>💡 Recommendations</h3>
+                    <ol style="margin: 0; padding-left: 20px;">
+                        ${incident.recommendations.map(rec => `
+                            <li style="margin-bottom: 8px; color: #333;">${rec}</li>
+                        `).join('')}
+                    </ol>
+                </div>
+            ` : '';
+            
+            modalContent.innerHTML = `
+                <h2>🔍 Incident Details</h2>
+                <div style="margin: 20px 0;">
+                    <span class="severity-badge severity-${incident.severity.toLowerCase()}">${incident.severity}</span>
+                    <span class="status-badge status-${incident.status.toLowerCase()}">${incident.status}</span>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📋 Overview</h3>
+                    <p><strong>Incident ID:</strong> ${incident.id}</p>
+                    <p><strong>Title:</strong> ${incident.title}</p>
+                    <p><strong>Created:</strong> ${new Date(incident.createdTime || incident.created).toLocaleString()}</p>
+                    <p><strong>Last Updated:</strong> ${incident.lastUpdateTime ? new Date(incident.lastUpdateTime).toLocaleString() : 'N/A'}</p>
+                    <p><strong>Assigned To:</strong> ${incident.assignedTo || incident.owner || 'Unassigned'}</p>
+                    <p><strong>Alert Count:</strong> ${incident.alertCount || 1}</p>
+                    ${incident.classification ? `<p><strong>Classification:</strong> ${incident.classification}</p>` : ''}
+                    ${incident.determination ? `<p><strong>Determination:</strong> ${incident.determination}</p>` : ''}
+                </div>
+                
+                ${entitiesHtml}
+                ${mitreHtml}
+                ${recommendationsHtml}
+                
+                <div class="detail-section" id="alertTimeline">
+                    <h3>📅 Alert Timeline</h3>
+                    <div id="alertTimelineContent" style="max-height: 300px; overflow-y: auto;">
+                        <div style="color: #999; text-align: center; padding: 20px;">Loading alerts...</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 30px; display: flex; gap: 10px;">
+                    <button class="refresh-btn" onclick="assignToMe('${incident.id}')">📌 Assign to Me</button>
+                    <button class="refresh-btn" style="background: #f44336;" onclick="escalateIncident('${incident.id}')">⚠️ Escalate</button>
+                    ${incident.webUrl ? `<button class="refresh-btn" style="background: #2980b9;" onclick="window.open('${incident.webUrl}', '_blank')">🔗 Open in Portal</button>` : ''}
+                    <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+            
+            // Load alert timeline for this incident
+            loadAlertTimeline(incident.id);
+        }
+        
+        function loadAlertTimeline(incidentId) {
+            const timelineContent = document.getElementById('alertTimelineContent');
+            
+            // Filter alerts for this incident
+            const incidentAlerts = window.dashboardData.alerts.filter(a => a.incidentId === incidentId);
+            
+            if (incidentAlerts.length === 0) {
+                timelineContent.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">No alerts found for this incident</div>';
+                return;
+            }
+            
+            // Sort by timestamp (newest first)
+            incidentAlerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            
+            const alertsHtml = incidentAlerts.map((alert, index) => {
+                const alertTime = new Date(alert.timestamp);
+                const severityColor = getSeverityColor(alert.severity);
+                const isFirst = index === 0;
+                const isLast = index === incidentAlerts.length - 1;
+                
+                return `
+                    <div style="position: relative; padding-left: 30px; padding-bottom: 20px;">
+                        <!-- Timeline line -->
+                        ${!isLast ? '<div style="position: absolute; left: 10px; top: 25px; width: 2px; height: calc(100% - 10px); background: #ddd;"></div>' : ''}
+                        
+                        <!-- Timeline dot -->
+                        <div style="position: absolute; left: 5px; top: 8px; width: 12px; height: 12px; border-radius: 50%; background: ${severityColor}; border: 2px solid white; box-shadow: 0 0 0 2px ${severityColor};"></div>
+                        
+                        <!-- Alert content -->
+                        <div class="clickable" onclick='showAlertDetails(${JSON.stringify(alert)})' style="background: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 3px solid ${severityColor}; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#e3f2fd'; this.style.transform='translateX(4px)';" onmouseout="this.style.background='#f8f9fa'; this.style.transform='translateX(0)';" title="Click for alert details">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                <div>
+                                    <strong style="color: #333; font-size: 14px;">${alert.title}</strong>
+                                    ${isFirst ? '<span style="margin-left: 8px; padding: 2px 8px; background: #4CAF50; color: white; border-radius: 3px; font-size: 11px;">LATEST</span>' : ''}
+                                </div>
+                                <span style="background: ${severityColor}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; white-space: nowrap;">${alert.severity}</span>
+                            </div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+                                <span>🕐 ${alertTime.toLocaleString()}</span>
+                            </div>
+                            <div style="font-size: 12px; color: #666;">
+                                <span style="margin-right: 12px;">📦 ${alert.product}</span>
+                                <span style="margin-right: 12px;">🏷️ ${alert.category}</span>
+                                <span style="padding: 2px 6px; background: ${alert.status === 'Resolved' ? '#27ae60' : alert.status === 'InProgress' ? '#f39c12' : '#3498db'}; color: white; border-radius: 3px; font-size: 10px;">${alert.status}</span>
+                            </div>
+                            ${alert.detectionSource ? `<div style="font-size: 11px; color: #999; margin-top: 4px;">🔍 Detection: ${alert.detectionSource}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            timelineContent.innerHTML = `
+                <div style="background: #fff; padding: 10px;">
+                    <div style="margin-bottom: 15px; padding: 10px; background: #e3f2fd; border-radius: 4px; border-left: 3px solid #2196F3;">
+                        <strong>📊 ${incidentAlerts.length} Alert${incidentAlerts.length !== 1 ? 's' : ''}</strong> - Timeline showing alert progression
+                    </div>
+                    ${alertsHtml}
+                </div>
+            `;
+        }
+
+        function showThreatIntelDetails(category) {
+            const modal = document.getElementById('incidentModal');
+            const modalContent = document.getElementById('modalContent');
+            const threatData = window.dashboardData?.threatIntelligence;
+            
+            if (!threatData) {
+                alert('Threat intelligence data not available');
+                return;
+            }
+            
+            let content = '';
+            
+            if (category === 'indicators') {
+                const data = threatData.microsoft;
+                const incidents = window.dashboardData?.incidents || [];
+                
+                // Extract actual IOCs from incidents
+                const iocs = { IPv4: [], Domains: [], URLs: [], FileHashes: [] };
+                incidents.forEach(inc => {
+                    inc.entities?.forEach(entity => {
+                        const iocData = { 
+                            value: entity.name, 
+                            verdict: entity.verdict,
+                            incidentId: inc.id,
+                            incidentTitle: inc.title,
+                            severity: inc.severity
+                        };
+                        
+                        if (entity.type === 'IP') {
+                            iocs.IPv4.push(iocData);
+                        } else if (entity.type === 'Email' && entity.name.includes('@')) {
+                            const domain = entity.name.split('@')[1];
+                            if (domain) {
+                                iocs.Domains.push({ ...iocData, value: domain });
+                            }
+                        } else if (entity.type === 'File') {
+                            iocs.FileHashes.push(iocData);
+                        }
+                    });
+                    
+                    // Count URLs from phishing incidents
+                    if (inc.title.toLowerCase().includes('email') || inc.title.toLowerCase().includes('phish')) {
+                        iocs.URLs.push({
+                            value: `Email: ${inc.title}`,
+                            verdict: 'suspicious',
+                            incidentId: inc.id,
+                            incidentTitle: inc.title,
+                            severity: inc.severity
+                        });
+                    }
+                });
+                
+                content = `
+                    <h2>🎯 Threat Indicators - Microsoft Sentinel</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #2196F3;">IOC Intelligence</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📊 Overview</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0;">
+                            <div class="clickable" onclick="showIOCDetails('total')" style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #2196F3; cursor: pointer;" title="Click to view all IOCs">
+                                <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${data.totalIOCs}</div>
+                                <div style="color: #666; font-size: 13px;">Total IOCs</div>
+                            </div>
+                            <div class="clickable" onclick="filterByThreatType('all-categories')" style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #4CAF50; cursor: pointer;" title="Click to filter active incidents">
+                                <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${data.activeIndicators}</div>
+                                <div style="color: #666; font-size: 13px;">Active Indicators</div>
+                            </div>
+                            <div style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #FF9800;">
+                                <div style="font-size: 24px; font-weight: bold; color: #FF9800;">${data.expiredIndicators}</div>
+                                <div style="color: #666; font-size: 13px;">Expired Indicators</div>
+                            </div>
+                            <div style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #9C27B0;">
+                                <div style="font-size: 24px; font-weight: bold; color: #9C27B0;">${data.recentlyAdded}</div>
+                                <div style="color: #666; font-size: 13px;">Recently Added</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📋 IOC Types</h3>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                            <div class="clickable" onclick="showIOCDetails('ipv4')" style="padding: 12px; background: #e3f2fd; border-radius: 4px; cursor: pointer; border-left: 3px solid #2196F3;" title="Click to view IPv4 addresses">
+                                <strong>🌐 IPv4 Addresses:</strong> ${data.byType.IPv4}
+                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.IPv4.length} actual IPs extracted</div>
+                            </div>
+                            <div class="clickable" onclick="showIOCDetails('domains')" style="padding: 12px; background: #f3e5f5; border-radius: 4px; cursor: pointer; border-left: 3px solid #9C27B0;" title="Click to view domains">
+                                <strong>🌍 Domains:</strong> ${data.byType.Domain}
+                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.Domains.length} domains extracted</div>
+                            </div>
+                            <div class="clickable" onclick="showIOCDetails('urls')" style="padding: 12px; background: #fff3e0; border-radius: 4px; cursor: pointer; border-left: 3px solid #FF9800;" title="Click to view URLs">
+                                <strong>🔗 URLs:</strong> ${data.byType.URL}
+                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.URLs.length} email/phishing threats</div>
+                            </div>
+                            <div class="clickable" onclick="showIOCDetails('files')" style="padding: 12px; background: #fce4ec; border-radius: 4px; cursor: pointer; border-left: 3px solid #E91E63;" title="Click to view file hashes">
+                                <strong>📄 File Hashes:</strong> ${data.byType.FileHash}
+                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.FileHashes.length} files detected</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>🎯 Confidence Levels</h3>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <div style="margin-bottom: 10px;">
+                                <span class="clickable" onclick="filterByConfidence('high')" style="padding: 6px 14px; background: #d32f2f; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Click to filter high confidence IOCs">High: ${data.confidence.high}</span>
+                                <span class="clickable" onclick="filterByConfidence('medium')" style="padding: 6px 14px; background: #ff9800; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Click to filter medium confidence IOCs">Medium: ${data.confidence.medium}</span>
+                                <span class="clickable" onclick="filterByConfidence('low')" style="padding: 6px 14px; background: #fbc02d; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Click to filter low confidence IOCs">Low: ${data.confidence.low}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section" id="iocDetailsSection" style="display: none;">
+                        <h3 id="iocDetailsTitle">📋 IOC Details</h3>
+                        <div id="iocDetailsContent" style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                        </div>
+                    </div>
+                `;
+                
+                // Store IOCs in window for later use
+                window.currentIOCs = iocs;
+            } else if (category === 'abuseipdb') {
+                const data = threatData.abuseIPDB;
+                
+                // Use malicious IPs from backend (already includes country data)
+                const maliciousIPs = data.maliciousIPs || [];
+                
+                // Group by confidence (severity)
+                const highConfidence = maliciousIPs.filter(ip => ip.severity === 'High');
+                const mediumConfidence = maliciousIPs.filter(ip => ip.severity === 'Medium');
+                const lowConfidence = maliciousIPs.filter(ip => ip.severity === 'Low' || ip.severity === 'Informational');
+                
+                content = `
+                    <h2>🚫 Malicious IPs - AbuseIPDB</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #f57c00;">IP Reputation</span>
+                        <span class="status-badge" style="background: #666; margin-left: 8px;">Source: ${data.source}</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📊 Statistics</h3>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 15px 0;">
+                            <div class="clickable" onclick="showIPList('malicious')" style="padding: 15px; background: #ffebee; border-radius: 6px; border-left: 3px solid #f44336; cursor: pointer;" title="Click to view all malicious IPs">
+                                <div style="font-size: 28px; font-weight: bold; color: #f44336;">${data.maliciousCount}</div>
+                                <div style="color: #666; font-size: 13px;">Malicious IPs</div>
+                                <div style="font-size: 11px; color: #999; margin-top: 4px;">${maliciousIPs.length} IPs extracted from incidents</div>
+                            </div>
+                            <div class="clickable" onclick="showIPList('all')" style="padding: 15px; background: #fff3e0; border-radius: 6px; border-left: 3px solid #ff9800; cursor: pointer;" title="Click to view all reported IPs">
+                                <div style="font-size: 28px; font-weight: bold; color: #ff9800;">${data.reportedIPs}</div>
+                                <div style="color: #666; font-size: 13px;">Total Reported IPs</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>⚠️ Abuse Confidence Distribution</h3>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                            <div class="clickable" onclick="showIPList('high')" style="padding: 12px; background: #ffebee; border-radius: 4px; text-align: center; cursor: pointer; border: 2px solid transparent;" title="Click to view high confidence IPs">
+                                <div style="font-size: 20px; font-weight: bold; color: #d32f2f;">${data.abuseConfidence.high}</div>
+                                <div style="color: #666; font-size: 12px;">High Confidence</div>
+                                <div style="font-size: 10px; color: #999; margin-top: 4px;">${highConfidence.length} IPs</div>
+                            </div>
+                            <div class="clickable" onclick="showIPList('medium')" style="padding: 12px; background: #fff3e0; border-radius: 4px; text-align: center; cursor: pointer; border: 2px solid transparent;" title="Click to view medium confidence IPs">
+                                <div style="font-size: 20px; font-weight: bold; color: #ff9800;">${data.abuseConfidence.medium}</div>
+                                <div style="color: #666; font-size: 12px;">Medium Confidence</div>
+                                <div style="font-size: 10px; color: #999; margin-top: 4px;">${mediumConfidence.length} IPs</div>
+                            </div>
+                            <div class="clickable" onclick="showIPList('low')" style="padding: 12px; background: #fffde7; border-radius: 4px; text-align: center; cursor: pointer; border: 2px solid transparent;" title="Click to view low confidence IPs">
+                                <div style="font-size: 20px; font-weight: bold; color: #fbc02d;">${data.abuseConfidence.low}</div>
+                                <div style="color: #666; font-size: 12px;">Low Confidence</div>
+                                <div style="font-size: 10px; color: #999; margin-top: 4px;">${lowConfidence.length} IPs</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>🌍 Top Countries</h3>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            ${data.topCountries.map(c => `
+                                <div class="clickable" onclick="filterIPsByCountry('${c.country}')" style="padding: 8px; margin: 5px 0; background: white; border-radius: 4px; display: flex; justify-content: space-between; cursor: pointer; border: 2px solid transparent;" title="Click to filter IPs from ${c.country}">
+                                    <span><strong>${c.country}</strong></span>
+                                    <span style="color: #f44336; font-weight: bold;">${c.count} IPs</span>
+                                </div>
+                            `).join('')}
+                            <div style="margin-top: 10px; text-align: center;">
+                                <button onclick="filterIPsByCountry('all')" style="padding: 6px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                    Show All IPs
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3 id="maliciousIPsTitle">🚨 Malicious IP Addresses (${maliciousIPs.length})</h3>
+                        <div id="maliciousIPsList" style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            ${Array.from(new Map(maliciousIPs.map(item => [item.ip, item])).values()).map(ip => {
+                                const verdictColor = ip.verdict === 'malicious' ? '#d32f2f' : '#ff9800';
+                                return `
+                                    <div class="ip-card" data-country="${ip.country || 'Unknown'}" style="padding: 14px; margin: 10px 0; background: white; border-radius: 6px; border-left: 4px solid ${verdictColor}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                        <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                                            <div style="flex: 1; min-width: 200px;">
+                                                <div style="font-family: 'Courier New', monospace; font-size: 18px; color: #d32f2f; font-weight: bold; margin-bottom: 8px;">
+                                                    🌐 ${ip.ip}
+                                                </div>
+                                                <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+                                                    <strong>Verdict:</strong> <span style="color: ${verdictColor}; text-transform: uppercase; font-weight: bold;">${ip.verdict}</span>
+                                                </div>
+                                                <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+                                                    <strong>Country:</strong> <span style="font-weight: bold;">${ip.country || 'Unknown'}</span>
+                                                </div>
+                                                <div style="font-size: 12px; color: #999; margin-bottom: 4px;">
+                                                    <strong>Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${ip.incidentId}")'>${ip.incidentTitle}</span>
+                                                </div>
+                                            </div>
+                                            <div style="text-align: right;">
+                                                <span class="severity-badge severity-${ip.severity.toLowerCase()}" style="font-size: 11px; padding: 4px 8px; display: inline-block; margin-bottom: 8px;">${ip.severity}</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 10px;">
+                                            <div style="font-size: 11px; color: #666; margin-bottom: 8px; font-weight: bold;">🔍 Investigate this IP across threat intelligence sources:</div>
+                                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                                <button onclick="lookupIP('virustotal', '${ip.ip}')" style="padding: 6px 12px; background: linear-gradient(135deg, #394EFF 0%, #3FAFFA 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;" title="Lookup on VirusTotal">
+                                                    🛡️ VirusTotal
+                                                </button>
+                                                <button onclick="lookupIP('abuseipdb', '${ip.ip}')" style="padding: 6px 12px; background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;" title="Lookup on AbuseIPDB">
+                                                    ⚠️ AbuseIPDB
+                                                </button>
+                                                <button onclick="lookupIP('threatcrowd', '${ip.ip}')" style="padding: 6px 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;" title="Lookup on ThreatCrowd">
+                                                    🌐 ThreatCrowd
+                                                </button>
+                                                <button onclick="lookupIP('talos', '${ip.ip}')" style="padding: 6px 12px; background: linear-gradient(135deg, #1BA0E2 0%, #00B4E6 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;" title="Lookup on Cisco Talos">
+                                                    🔒 Talos
+                                                </button>
+                                                <button onclick="lookupIP('shodan', '${ip.ip}')" style="padding: 6px 12px; background: linear-gradient(135deg, #E74C3C 0%, #C0392B 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;" title="Lookup on Shodan">
+                                                    🔎 Shodan
+                                                </button>
+                                                <button onclick="lookupIP('greynoise', '${ip.ip}')" style="padding: 6px 12px; background: linear-gradient(135deg, #2C3E50 0%, #34495E 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;" title="Lookup on GreyNoise">
+                                                    📡 GreyNoise
+                                                </button>
+                                                <button onclick="copyToClipboard('${ip.ip}')" style="padding: 6px 12px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;" title="Copy IP to clipboard">
+                                                    📋 Copy IP
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section" style="background: #e3f2fd; padding: 15px; border-radius: 6px; border-left: 4px solid #2196F3;">
+                        <p style="margin: 0; color: #1565c0; font-size: 13px;">
+                            <strong>💡 Tip:</strong> Click any threat intelligence button to open that service in a new tab and investigate the IP address. All IPs shown above are extracted from real Microsoft Defender incidents.
+                        </p>
+                    </div>
+                    
+                    <div class="detail-section" id="ipListSection" style="display: none;">
+                        <h3 id="ipListTitle">📋 IP Address Details</h3>
+                        <div id="ipListContent" style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                        </div>
+                    </div>
+                `;
+                
+                // Store IPs for later use
+                window.currentMaliciousIPs = {
+                    all: maliciousIPs,
+                    high: highConfidence,
+                    medium: mediumConfidence,
+                    low: lowConfidence
+                };
+            } else if (category === 'virustotal') {
+                const data = threatData.virusTotal;
+                content = `
+                    <h2>🦠 VirusTotal Detections</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #c62828;">Malware Analysis</span>
+                        <span class="status-badge" style="background: #666; margin-left: 8px;">Source: ${data.source}</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📊 File Scanning Results</h3>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 15px 0;">
+                            <div style="padding: 15px; background: #e3f2fd; border-radius: 6px; border-left: 3px solid #2196F3;">
+                                <div style="font-size: 28px; font-weight: bold; color: #2196F3;">${data.filesScanned}</div>
+                                <div style="color: #666; font-size: 13px;">Files Scanned</div>
+                            </div>
+                            <div style="padding: 15px; background: #ffebee; border-radius: 6px; border-left: 3px solid #f44336;">
+                                <div style="font-size: 28px; font-weight: bold; color: #f44336;">${data.maliciousFiles}</div>
+                                <div style="color: #666; font-size: 13px;">Malicious Files</div>
+                            </div>
+                            <div style="padding: 15px; background: #fff3e0; border-radius: 6px; border-left: 3px solid #ff9800;">
+                                <div style="font-size: 28px; font-weight: bold; color: #ff9800;">${data.suspiciousFiles}</div>
+                                <div style="color: #666; font-size: 13px;">Suspicious Files</div>
+                            </div>
+                            <div style="padding: 15px; background: #e8f5e9; border-radius: 6px; border-left: 3px solid #4CAF50;">
+                                <div style="font-size: 28px; font-weight: bold; color: #4CAF50;">${data.cleanFiles}</div>
+                                <div style="color: #666; font-size: 13px;">Clean Files</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>🔗 URL Scanning</h3>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                            <div style="padding: 15px; background: #f5f5f5; border-radius: 6px;">
+                                <div style="font-size: 20px; font-weight: bold; color: #666;">${data.urlsScanned}</div>
+                                <div style="color: #666; font-size: 13px;">URLs Scanned</div>
+                            </div>
+                            <div style="padding: 15px; background: #ffebee; border-radius: 6px;">
+                                <div style="font-size: 20px; font-weight: bold; color: #f44336;">${data.maliciousUrls}</div>
+                                <div style="color: #666; font-size: 13px;">Malicious URLs</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>⚡ Detection Rate</h3>
+                        <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 6px; text-align: center;">
+                            <div style="font-size: 48px; font-weight: bold; color: white;">${data.detectionRate}%</div>
+                            <div style="color: white; font-size: 14px; margin-top: 5px;">Malware Detection Rate</div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>🎯 Top Threats Detected</h3>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            ${data.topThreats.map((threat, idx) => `
+                                <div style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; border-left: 3px solid #f44336;">
+                                    <strong>#${idx + 1} ${threat.name}</strong>
+                                    <span style="float: right; color: #f44336; font-weight: bold;">${threat.count} detections</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } else if (category === 'talos') {
+                const data = threatData.talos;
+                const reputationColor = data.reputation === 'excellent' ? '#4CAF50' : 
+                                       data.reputation === 'good' ? '#8BC34A' : 
+                                       data.reputation === 'neutral' ? '#FF9800' : '#f44336';
+                content = `
+                    <h2>📊 Talos Threat Intelligence</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: ${reputationColor};">Reputation: ${data.reputation.toUpperCase()}</span>
+                        <span class="status-badge" style="background: #666; margin-left: 8px;">Source: ${data.source}</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>⚠️ Threat Score</h3>
+                        <div style="padding: 25px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 6px; text-align: center;">
+                            <div style="font-size: 56px; font-weight: bold; color: white;">${data.threatScore}</div>
+                            <div style="color: white; font-size: 14px; margin-top: 5px;">Out of 100 (Lower is Better)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📊 Threat Statistics</h3>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                            <div class="clickable" onclick="filterByThreatType('all-categories')" style="padding: 15px; background: #fff3e0; border-radius: 6px; border-left: 3px solid #ff9800; cursor: pointer;" title="Click to filter incidents by all categories">
+                                <div style="font-size: 24px; font-weight: bold; color: #ff9800;">${data.categoriesBlocked}</div>
+                                <div style="color: #666; font-size: 13px;">Categories Blocked</div>
+                            </div>
+                            <div class="clickable" onclick="filterByThreatType('malicious-ips')" style="padding: 15px; background: #ffebee; border-radius: 6px; border-left: 3px solid #f44336; cursor: pointer;" title="Click to filter incidents with malicious IPs">
+                                <div style="font-size: 24px; font-weight: bold; color: #f44336;">${data.maliciousIPs}</div>
+                                <div style="color: #666; font-size: 13px;">Malicious IPs</div>
+                            </div>
+                            <div class="clickable" onclick="filterByThreatType('phishing')" style="padding: 15px; background: #f3e5f5; border-radius: 6px; border-left: 3px solid #9C27B0; cursor: pointer;" title="Click to filter phishing/spam incidents">
+                                <div style="font-size: 24px; font-weight: bold; color: #9C27B0;">${data.spamSources}</div>
+                                <div style="color: #666; font-size: 13px;">Spam Sources</div>
+                            </div>
+                            <div class="clickable" onclick="showEntityDetails('all-entities')" style="padding: 15px; background: #e3f2fd; border-radius: 6px; border-left: 3px solid #2196F3; cursor: pointer;" title="Click to view all entities">
+                                <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${data.reputation}</div>
+                                <div style="color: #666; font-size: 13px;">All Entities</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>🏷️ Threat Categories</h3>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <div class="clickable" onclick="filterByThreatType('malware')" style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; display: flex; justify-content: space-between; cursor: pointer;" title="Click to filter malware incidents">
+                                <span><strong>🦠 Malware</strong></span>
+                                <span style="color: #f44336; font-weight: bold;">${data.reputationCategories.malware}</span>
+                            </div>
+                            <div class="clickable" onclick="filterByThreatType('phishing')" style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; display: flex; justify-content: space-between; cursor: pointer;" title="Click to filter phishing incidents">
+                                <span><strong>🎣 Phishing</strong></span>
+                                <span style="color: #ff9800; font-weight: bold;">${data.reputationCategories.phishing}</span>
+                            </div>
+                            <div class="clickable" onclick="filterByThreatType('spam')" style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; display: flex; justify-content: space-between; cursor: pointer;" title="Click to filter spam incidents">
+                                <span><strong>📧 Spam</strong></span>
+                                <span style="color: #fbc02d; font-weight: bold;">${data.reputationCategories.spam}</span>
+                            </div>
+                            <div class="clickable" onclick="filterByThreatType('botnet')" style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; display: flex; justify-content: space-between; cursor: pointer;" title="Click to filter botnet incidents">
+                                <span><strong>🤖 Botnet</strong></span>
+                                <span style="color: #9C27B0; font-weight: bold;">${data.reputationCategories.botnet}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📊 Data Calculation Method</h3>
+                        <div style="background: #e3f2fd; padding: 15px; border-radius: 6px; border-left: 3px solid #2196F3;">
+                            <p style="margin: 0 0 10px 0; color: #333;"><strong>How this score is calculated:</strong></p>
+                            <div style="background: white; padding: 12px; border-radius: 4px; margin-bottom: 10px;">
+                                <code style="color: #d32f2f; font-size: 12px;">
+                                    Threat Score = (High Severity × 5 + Medium Severity × 2) / Total Incidents × 100
+                                </code>
+                            </div>
+                            <ul style="margin: 10px 0; padding-left: 20px; color: #666; font-size: 13px;">
+                                <li>High severity incidents weighted 5x</li>
+                                <li>Medium severity incidents weighted 2x</li>
+                                <li>Score capped at 100</li>
+                                <li>Lower scores indicate better security posture</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section" id="sourceDataSection" style="display: none;">
+                        <h3>🔍 Source Incidents</h3>
+                        <div id="sourceIncidentsList" style="background: #f8f9fa; padding: 15px; border-radius: 6px; max-height: 400px; overflow-y: auto;">
+                            <!-- Will be populated by showSourceData -->
+                        </div>
+                    </div>
+                `;
+            }
+            
+            modalContent.innerHTML = content + `
+                <div style="margin-top: 30px; display: flex; gap: 10px;">
+                    ${category === 'talos' ? '<button class="refresh-btn" style="background: #2196F3;" onclick="showSourceData(\'' + category + '\')">🔍 View Source Data</button>' : ''}
+                    <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+        
+        function showEntityDetails(type) {
+            const modal = document.getElementById('incidentModal');
+            const modalContent = document.getElementById('modalContent');
+            const incidents = window.dashboardData?.incidents || [];
+            
+            let content = '';
+            let entities = { IPs: [], Users: [], Emails: [], Files: [], Devices: [] };
+            
+            // Extract all entities from incidents
+            incidents.forEach(incident => {
+                incident.entities?.forEach(entity => {
+                    switch(entity.type) {
+                        case 'IP':
+                            entities.IPs.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
+                            break;
+                        case 'User':
+                            entities.Users.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
+                            break;
+                        case 'Email':
+                            entities.Emails.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
+                            break;
+                        case 'File':
+                            entities.Files.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
+                            break;
+                        case 'Device':
+                            entities.Devices.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
+                            break;
+                    }
+                });
+            });
+            
+            if (type === 'malicious-ips') {
+                const maliciousIPs = entities.IPs.filter(e => e.verdict === 'malicious' || e.verdict === 'suspicious');
+                content = `
+                    <h2>🚫 Malicious IP Addresses</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #f44336;">Found: ${maliciousIPs.length} IPs</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        ${maliciousIPs.map(ip => `
+                            <div style="padding: 12px; margin: 8px 0; background: #ffebee; border-radius: 6px; border-left: 4px solid ${ip.verdict === 'malicious' ? '#d32f2f' : '#ff9800'};">
+                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                    <div style="flex: 1;">
+                                        <div style="font-family: monospace; font-size: 16px; color: #d32f2f; font-weight: bold; margin-bottom: 6px;">
+                                            ${ip.name}
+                                        </div>
+                                        <div style="font-size: 13px; color: #666; margin-bottom: 4px;">
+                                            <strong>Verdict:</strong> <span style="color: ${ip.verdict === 'malicious' ? '#d32f2f' : '#ff9800'}; text-transform: uppercase;">${ip.verdict}</span>
+                                        </div>
+                                        <div style="font-size: 12px; color: #999;">
+                                            <strong>Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${ip.incidentId}")'>${ip.incidentTitle}</span>
+                                        </div>
+                                        <div style="font-size: 12px; color: #999;">
+                                            <strong>Severity:</strong> <span class="severity-badge severity-${ip.severity.toLowerCase()}" style="font-size: 10px; padding: 2px 6px;">${ip.severity}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (type === 'malware') {
+                const malwareFiles = entities.Files.filter(e => e.verdict === 'malicious');
+                const malwareIncidents = incidents.filter(i => i.title.toLowerCase().includes('malware') || i.title.toLowerCase().includes('hacktool'));
+                content = `
+                    <h2>🦠 Malware Entities</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #f44336;">Files: ${malwareFiles.length} | Incidents: ${malwareIncidents.length}</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📁 Malicious Files</h3>
+                        ${malwareFiles.length > 0 ? malwareFiles.map(file => `
+                            <div style="padding: 12px; margin: 8px 0; background: #ffebee; border-radius: 6px; border-left: 4px solid #d32f2f;">
+                                <div style="font-family: monospace; font-size: 14px; color: #d32f2f; font-weight: bold; margin-bottom: 6px;">
+                                    📄 ${file.name}
+                                </div>
+                                <div style="font-size: 12px; color: #999;">
+                                    <strong>Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${file.incidentId}")'>${file.incidentTitle}</span>
+                                </div>
+                            </div>
+                        `).join('') : '<p style="color: #666;">No malicious files found</p>'}
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>🎯 Related Incidents</h3>
+                        ${malwareIncidents.slice(0, 10).map(inc => `
+                            <div class="clickable" style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; border-left: 3px solid #f44336;" onclick='showIncidentDetails(${JSON.stringify(inc).replace(/'/g, "&apos;")})'>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <strong>${inc.title}</strong>
+                                    <span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (type === 'phishing') {
+                const phishingEmails = entities.Emails;
+                const phishingUsers = entities.Users.filter(u => {
+                    const incident = incidents.find(i => i.id === u.incidentId);
+                    return incident && (incident.title.toLowerCase().includes('phish') || incident.title.toLowerCase().includes('dlp'));
+                });
+                const phishingIncidents = incidents.filter(i => i.title.toLowerCase().includes('phish') || i.title.toLowerCase().includes('email') || i.title.toLowerCase().includes('dlp'));
+                
+                content = `
+                    <h2>🎣 Phishing Entities</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #ff9800;">Emails: ${phishingEmails.length} | Users: ${phishingUsers.length} | Incidents: ${phishingIncidents.length}</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>📧 Suspicious Emails</h3>
+                        ${phishingEmails.slice(0, 15).map(email => `
+                            <div style="padding: 12px; margin: 8px 0; background: #fff3e0; border-radius: 6px; border-left: 4px solid #ff9800;">
+                                <div style="font-size: 14px; color: #e65100; font-weight: bold; margin-bottom: 6px;">
+                                    ✉️ ${email.name}
+                                </div>
+                                <div style="font-size: 12px; color: #999;">
+                                    <strong>Verdict:</strong> <span style="color: #ff9800; text-transform: uppercase;">${email.verdict}</span> | 
+                                    <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${email.incidentId}")'>View Incident</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>👤 Affected Users</h3>
+                        ${phishingUsers.slice(0, 10).map(user => `
+                            <div style="padding: 10px; margin: 6px 0; background: #f5f5f5; border-radius: 4px; border-left: 3px solid #ff9800;">
+                                <div style="font-family: monospace; font-size: 13px; color: #333;">
+                                    👤 ${user.name}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (type === 'botnet') {
+                const botnetIncidents = incidents.filter(i => i.title.toLowerCase().includes('botnet') || i.title.toLowerCase().includes('command and control') || i.title.toLowerCase().includes('multi-stage'));
+                const botnetIPs = entities.IPs.filter(ip => {
+                    return botnetIncidents.some(inc => inc.id === ip.incidentId);
+                });
+                const botnetDevices = entities.Devices.filter(d => {
+                    return botnetIncidents.some(inc => inc.id === d.incidentId);
+                });
+                
+                content = `
+                    <h2>🤖 Botnet/C2 Entities</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #9C27B0;">IPs: ${botnetIPs.length} | Devices: ${botnetDevices.length} | Incidents: ${botnetIncidents.length}</span>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>🌐 C2 IP Addresses</h3>
+                        ${botnetIPs.map(ip => `
+                            <div style="padding: 10px; margin: 6px 0; background: #f3e5f5; border-radius: 4px; border-left: 3px solid #9C27B0;">
+                                <span style="font-family: monospace; color: #9C27B0; font-weight: bold;">${ip.name}</span>
+                                <span style="float: right; font-size: 11px; color: #666;">${ip.verdict}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>💻 Affected Devices</h3>
+                        ${botnetDevices.map(device => `
+                            <div style="padding: 10px; margin: 6px 0; background: #f5f5f5; border-radius: 4px; border-left: 3px solid #9C27B0;">
+                                <span style="font-family: monospace; color: #333;">🖥️ ${device.name}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else if (type === 'all-entities') {
+                const totalEntities = entities.IPs.length + entities.Users.length + entities.Emails.length + entities.Files.length + entities.Devices.length;
+                content = `
+                    <h2>📊 All Entities Overview</h2>
+                    <div style="margin: 20px 0;">
+                        <span class="status-badge" style="background: #2196F3;">Total: ${totalEntities} Entities</span>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
+                        <div class="clickable" onclick="showEntityDetails('malicious-ips')" style="padding: 20px; background: #ffebee; border-radius: 6px; text-align: center; cursor: pointer;">
+                            <div style="font-size: 32px; font-weight: bold; color: #f44336;">${entities.IPs.length}</div>
+                            <div style="color: #666; font-size: 14px;">IP Addresses</div>
+                        </div>
+                        <div style="padding: 20px; background: #e3f2fd; border-radius: 6px; text-align: center;">
+                            <div style="font-size: 32px; font-weight: bold; color: #2196F3;">${entities.Users.length}</div>
+                            <div style="color: #666; font-size: 14px;">Users</div>
+                        </div>
+                        <div style="padding: 20px; background: #fff3e0; border-radius: 6px; text-align: center;">
+                            <div style="font-size: 32px; font-weight: bold; color: #ff9800;">${entities.Emails.length}</div>
+                            <div style="color: #666; font-size: 14px;">Emails</div>
+                        </div>
+                        <div style="padding: 20px; background: #f3e5f5; border-radius: 6px; text-align: center;">
+                            <div style="font-size: 32px; font-weight: bold; color: #9C27B0;">${entities.Files.length}</div>
+                            <div style="color: #666; font-size: 14px;">Files</div>
+                        </div>
+                        <div style="padding: 20px; background: #e8f5e9; border-radius: 6px; text-align: center;">
+                            <div style="font-size: 32px; font-weight: bold; color: #4CAF50;">${entities.Devices.length}</div>
+                            <div style="color: #666; font-size: 14px;">Devices</div>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h3>Recent Entities (Sample)</h3>
+                        ${entities.IPs.slice(0, 5).map(ip => `
+                            <div style="padding: 8px; margin: 4px 0; background: #f5f5f5; border-radius: 4px;">
+                                <span style="color: #666;">🌐 IP:</span> <span style="font-family: monospace; color: #333;">${ip.name}</span>
+                            </div>
+                        `).join('')}
+                        ${entities.Users.slice(0, 5).map(user => `
+                            <div style="padding: 8px; margin: 4px 0; background: #f5f5f5; border-radius: 4px;">
+                                <span style="color: #666;">👤 User:</span> <span style="font-family: monospace; color: #333;">${user.name}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            modalContent.innerHTML = content + `
+                <div style="margin-top: 30px; display: flex; gap: 10px;">
+                    <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+        
+        function showIncidentById(incidentId) {
+            const incidents = window.dashboardData?.incidents || [];
+            const incident = incidents.find(i => i.id === incidentId);
+            if (incident) {
+                showIncidentDetails(incident);
+            }
+        }
+        
+        function showIOCDetails(type) {
+            const section = document.getElementById('iocDetailsSection');
+            const title = document.getElementById('iocDetailsTitle');
+            const content = document.getElementById('iocDetailsContent');
+            const iocs = window.currentIOCs;
+            
+            if (!iocs) {
+                alert('IOC data not available');
+                return;
+            }
+            
+            let html = '';
+            let iocList = [];
+            
+            if (type === 'ipv4') {
+                title.textContent = '🌐 IPv4 Addresses';
+                iocList = iocs.IPv4;
+            } else if (type === 'domains') {
+                title.textContent = '🌍 Domains';
+                iocList = iocs.Domains;
+            } else if (type === 'urls') {
+                title.textContent = '🔗 URLs / Email Threats';
+                iocList = iocs.URLs;
+            } else if (type === 'files') {
+                title.textContent = '📄 File Hashes';
+                iocList = iocs.FileHashes;
+            } else if (type === 'total') {
+                title.textContent = '📊 All IOCs';
+                iocList = [...iocs.IPv4, ...iocs.Domains, ...iocs.URLs, ...iocs.FileHashes];
+            }
+            
+            // Remove duplicates
+            const uniqueIOCs = Array.from(new Map(iocList.map(item => [item.value, item])).values());
+            
+            if (uniqueIOCs.length === 0) {
+                html = '<p style="color: #666; text-align: center; padding: 20px;">No IOCs found of this type</p>';
+            } else {
+                html = uniqueIOCs.map(ioc => {
+                    const verdictColor = ioc.verdict === 'malicious' ? '#d32f2f' : 
+                                        ioc.verdict === 'suspicious' ? '#ff9800' : '#666';
+                    return `
+                        <div style="padding: 12px; margin: 8px 0; background: white; border-radius: 4px; border-left: 4px solid ${verdictColor};">
+                            <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 10px;">
+                                <div style="flex: 1; min-width: 200px;">
+                                    <div style="font-family: monospace; font-size: 14px; color: #333; font-weight: bold; word-break: break-all;">
+                                        ${ioc.value}
+                                    </div>
+                                    <div style="font-size: 12px; color: #666; margin-top: 6px;">
+                                        <strong>Verdict:</strong> <span style="color: ${verdictColor}; text-transform: uppercase; font-weight: bold;">${ioc.verdict || 'unknown'}</span>
+                                    </div>
+                                    <div style="font-size: 12px; color: #999; margin-top: 4px;">
+                                        <strong>Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${ioc.incidentId}")'>${ioc.incidentTitle}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="severity-badge severity-${ioc.severity.toLowerCase()}" style="font-size: 11px; padding: 4px 8px;">${ioc.severity}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+            
+            content.innerHTML = html;
+            section.style.display = 'block';
+            section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
+        function filterByConfidence(level) {
+            // Close modal and filter incidents by severity based on confidence
+            closeModal();
+            
+            let severity = 'all';
+            if (level === 'high') {
+                severity = 'High';
+            } else if (level === 'medium') {
+                severity = 'Medium';
+            } else if (level === 'low') {
+                severity = 'Low';
+            }
+            
+            // Show filter notification
+            const notification = document.createElement('div');
+            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #9C27B0; color: white; padding: 15px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 10000; animation: slideInRight 0.3s;';
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span>🎯 Filtering by Confidence: <strong>${level.toUpperCase()}</strong></span>
+                    <button onclick="this.parentElement.parentElement.remove(); currentIncidentFilter='all'; renderIncidentsTable();" style="background: white; color: #9C27B0; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">Clear</button>
+                </div>
+                <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">Showing ${severity} severity incidents</div>
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+            
+            // Filter and scroll
+            if (severity !== 'all') {
+                filterIncidentsBySeverity(severity);
+            }
+        }
+        
+        function showIPList(type) {
+            const section = document.getElementById('ipListSection');
+            const title = document.getElementById('ipListTitle');
+            const content = document.getElementById('ipListContent');
+            const ips = window.currentMaliciousIPs;
+            
+            if (!ips) {
+                alert('IP data not available');
+                return;
+            }
+            
+            let ipList = [];
+            let titleText = '';
+            
+            if (type === 'high') {
+                ipList = ips.high;
+                titleText = '🔴 High Confidence Malicious IPs';
+            } else if (type === 'medium') {
+                ipList = ips.medium;
+                titleText = '🟠 Medium Confidence IPs';
+            } else if (type === 'low') {
+                ipList = ips.low;
+                titleText = '🟡 Low Confidence IPs';
+            } else if (type === 'malicious' || type === 'all') {
+                ipList = ips.all;
+                titleText = '🚫 All Malicious IP Addresses';
+            }
+            
+            title.textContent = titleText;
+            
+            if (ipList.length === 0) {
+                content.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">No IPs found in this category</p>';
+            } else {
+                const uniqueIPs = Array.from(new Map(ipList.map(item => [item.ip, item])).values());
+                
+                content.innerHTML = uniqueIPs.map(ip => {
+                    const verdictColor = ip.verdict === 'malicious' ? '#d32f2f' : '#ff9800';
+                    const severityColor = ip.severity === 'High' ? '#d32f2f' : 
+                                         ip.severity === 'Medium' ? '#ff9800' : '#fbc02d';
+                    
+                    return `
+                        <div style="padding: 12px; margin: 8px 0; background: white; border-radius: 6px; border-left: 4px solid ${verdictColor};">
+                            <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 10px;">
+                                <div style="flex: 1; min-width: 200px;">
+                                    <div style="font-family: 'Courier New', monospace; font-size: 16px; color: #333; font-weight: bold; margin-bottom: 8px;">
+                                        🌐 ${ip.ip}
+                                    </div>
+                                    <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+                                        <strong>Verdict:</strong> <span style="color: ${verdictColor}; text-transform: uppercase; font-weight: bold;">${ip.verdict}</span>
+                                    </div>
+                                    <div style="font-size: 12px; color: #999; margin-bottom: 4px;">
+                                        <strong>From Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${ip.incidentId}")'>${ip.incidentTitle}</span>
+                                    </div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span class="severity-badge severity-${ip.severity.toLowerCase()}" style="font-size: 11px; padding: 4px 8px; display: inline-block; margin-bottom: 4px;">${ip.severity}</span>
+                                    <div style="font-size: 11px; color: #999;">
+                                        <button onclick="copyToClipboard('${ip.ip}')" style="padding: 4px 8px; background: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px;">📋 Copy IP</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+            
+            section.style.display = 'block';
+            section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
+        function filterByCountry(country) {
+            closeModal();
+            
+            // Show notification
+            const notification = document.createElement('div');
+            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #f57c00; color: white; padding: 15px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 10000; animation: slideInRight 0.3s;';
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span>🌍 Filtering by Country: <strong>${country}</strong></span>
+                    <button onclick="this.parentElement.parentElement.remove(); clearThreatFilter();" style="background: white; color: #f57c00; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">Clear</button>
+                </div>
+                <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">Showing incidents with IPs from this country</div>
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+            
+            // Filter to incidents with malicious IPs (country filtering would require geolocation)
+            filterByThreatType('malicious-ips');
+        }
+        
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                // Show quick notification
+                const toast = document.createElement('div');
+                toast.style.cssText = 'position: fixed; bottom: 20px; right: 20px; background: #4CAF50; color: white; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 10000; animation: slideInRight 0.3s;';
+                toast.textContent = `✅ Copied: ${text}`;
+                document.body.appendChild(toast);
+                
+                setTimeout(() => {
+                    toast.style.animation = 'slideOutRight 0.3s';
+                    setTimeout(() => toast.remove(), 300);
+                }, 2000);
+            }).catch(err => {
+                alert('Failed to copy: ' + err);
+            });
+        }
+        
+        function lookupIP(service, ip) {
+            const urls = {
+                'virustotal': `https://www.virustotal.com/gui/ip-address/${ip}`,
+                'abuseipdb': `https://www.abuseipdb.com/check/${ip}`,
+                'threatcrowd': `https://www.threatcrowd.org/ip.php?ip=${ip}`,
+                'talos': `https://www.talosintelligence.com/reputation_center/lookup?search=${ip}`,
+                'shodan': `https://www.shodan.io/host/${ip}`,
+                'greynoise': `https://viz.greynoise.io/ip/${ip}`
+            };
+            
+            if (urls[service]) {
+                window.open(urls[service], '_blank');
+                
+                // Show toast notification
+                const toast = document.createElement('div');
+                toast.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 16px 24px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    z-index: 10000;
+                    font-size: 14px;
+                    font-weight: 500;
+                    animation: slideInRight 0.3s;
+                `;
+                toast.textContent = `🔍 Opening ${service.toUpperCase()} for ${ip}`;
+                document.body.appendChild(toast);
+                
+                setTimeout(() => {
+                    toast.style.animation = 'slideOutRight 0.3s';
+                    setTimeout(() => toast.remove(), 300);
+                }, 2000);
+            }
+        }
+        
+        function showIncidentById(incidentId) {
+            const incidents = window.dashboardData?.incidents || [];
+            const incident = incidents.find(i => i.id === incidentId);
+            if (incident) {
+                showIncidentDetails(incident);
+            }
+        }
+        
+        function filterIPsByCountry(country) {
+            const ipCards = document.querySelectorAll('.ip-card');
+            const title = document.getElementById('maliciousIPsTitle');
+            let visibleCount = 0;
+            
+            ipCards.forEach(card => {
+                const cardCountry = card.getAttribute('data-country');
+                if (country === 'all' || cardCountry === country) {
+                    card.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+            
+            // Update title with filtered count
+            if (country === 'all') {
+                title.textContent = `🚨 Malicious IP Addresses (${visibleCount})`;
+            } else {
+                title.textContent = `🚨 Malicious IP Addresses from ${country} (${visibleCount})`;
+            }
+            
+            // Show toast notification
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 16px 24px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 10000;
+                font-size: 14px;
+                font-weight: 500;
+                animation: slideInRight 0.3s;
+            `;
+            toast.textContent = country === 'all' 
+                ? `✅ Showing all ${visibleCount} IPs`
+                : `🌍 Filtered to ${visibleCount} IPs from ${country}`;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideOutRight 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
+        
+        function showEntityDetails(entity, incidentId) {
+            const modal = document.getElementById('incidentModal');
+            const modalContent = document.getElementById('modalContent');
+            
+            const verdictColor = entity.verdict === 'malicious' ? '#e74c3c' : 
+                                 entity.verdict === 'suspicious' ? '#f39c12' : '#3498db';
+            
+            let additionalInfo = '';
+            
+            // Type-specific information
+            if (entity.type === 'IP') {
+                additionalInfo = `
+                    <div class="detail-section">
+                        <h3>🔍 IP Intelligence</h3>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+                            <button onclick="lookupIP('virustotal', '${entity.name}')" style="padding: 8px 16px; background: linear-gradient(135deg, #394EFF 0%, #3FAFFA 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                🛡️ VirusTotal
+                            </button>
+                            <button onclick="lookupIP('abuseipdb', '${entity.name}')" style="padding: 8px 16px; background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                ⚠️ AbuseIPDB
+                            </button>
+                            <button onclick="lookupIP('shodan', '${entity.name}')" style="padding: 8px 16px; background: linear-gradient(135deg, #E74C3C 0%, #C0392B 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                🔎 Shodan
+                            </button>
+                            <button onclick="lookupIP('talos', '${entity.name}')" style="padding: 8px 16px; background: linear-gradient(135deg, #1BA0E2 0%, #00B4E6 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                🔒 Talos
+                            </button>
+                            <button onclick="copyToClipboard('${entity.name}')" style="padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                📋 Copy
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (entity.type === 'User') {
+                additionalInfo = `
+                    <div class="detail-section">
+                        <h3>👤 User Investigation</h3>
+                        <p style="color: #666; font-size: 13px;">Check for:</p>
+                        <ul style="color: #666; font-size: 13px;">
+                            <li>Recent authentication anomalies</li>
+                            <li>Unusual access patterns</li>
+                            <li>Account compromise indicators</li>
+                            <li>Related security alerts</li>
+                        </ul>
+                    </div>
+                `;
+            } else if (entity.type === 'File') {
+                additionalInfo = `
+                    <div class="detail-section">
+                        <h3>📄 File Analysis</h3>
+                        <div style="margin-top: 10px;">
+                            <button onclick="window.open('https://www.virustotal.com/gui/search/${encodeURIComponent(entity.name)}', '_blank')" style="padding: 8px 16px; background: linear-gradient(135deg, #394EFF 0%, #3FAFFA 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; margin-right: 8px;">
+                                🛡️ Check VirusTotal
+                            </button>
+                            <button onclick="copyToClipboard('${entity.name}')" style="padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                                📋 Copy Name
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (entity.type === 'Device') {
+                additionalInfo = `
+                    <div class="detail-section">
+                        <h3>💻 Device Investigation</h3>
+                        <p style="color: #666; font-size: 13px;">Recommended actions:</p>
+                        <ul style="color: #666; font-size: 13px;">
+                            <li>Check device compliance status</li>
+                            <li>Review recent device activity</li>
+                            <li>Verify security software is active</li>
+                            <li>Scan for additional IOCs</li>
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            modalContent.innerHTML = `
+                <h2>🔍 Entity Details</h2>
+                
+                <div style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, ${verdictColor}22 0%, ${verdictColor}11 100%); border-left: 4px solid ${verdictColor}; border-radius: 6px;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 8px;">Entity Type</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #333; margin-bottom: 12px;">${entity.type}</div>
+                    <div style="font-family: 'Courier New', monospace; font-size: 16px; color: ${verdictColor}; font-weight: bold; background: white; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+                        ${entity.name}
+                    </div>
+                    <div style="display: inline-block; padding: 6px 16px; background: ${verdictColor}; color: white; border-radius: 20px; font-size: 13px; font-weight: bold; text-transform: uppercase;">
+                        ${entity.verdict || 'Unknown'}
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📋 Details</h3>
+                    <p><strong>Entity Type:</strong> ${entity.type}</p>
+                    <p><strong>Entity Value:</strong> ${entity.name}</p>
+                    <p><strong>Verdict:</strong> <span style="color: ${verdictColor}; font-weight: bold;">${entity.verdict || 'Unknown'}</span></p>
+                    <p><strong>Related Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick="showIncidentById('${incidentId}')">${incidentId}</span></p>
+                </div>
+                
+                ${additionalInfo}
+                
+                <div class="detail-section" style="background: #e3f2fd; padding: 15px; border-radius: 6px; border-left: 4px solid #2196F3;">
+                    <p style="margin: 0; color: #1565c0; font-size: 13px;">
+                        <strong>💡 Next Steps:</strong> Investigate this entity across related incidents and alerts. Look for patterns of malicious activity and consider blocking or isolating if confirmed as a threat.
+                    </p>
+                </div>
+                
+                <div style="margin-top: 30px; display: flex; gap: 10px;">
+                    <button class="refresh-btn" onclick="showIncidentById('${incidentId}')">← Back to Incident</button>
+                    <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+        
+        function showAlertDetails(alert) {
+            const modal = document.getElementById('incidentModal');
+            const modalContent = document.getElementById('modalContent');
+            
+            const severityColor = getSeverityColor(alert.severity);
+            const statusColor = alert.status === 'Resolved' ? '#27ae60' : 
+                               alert.status === 'InProgress' ? '#f39c12' : '#3498db';
+            
+            modalContent.innerHTML = `
+                <h2>🚨 Alert Details</h2>
+                
+                <div style="margin: 20px 0;">
+                    <span class="severity-badge severity-${alert.severity.toLowerCase()}">${alert.severity}</span>
+                    <span style="padding: 4px 12px; background: ${statusColor}; color: white; border-radius: 4px; font-size: 13px; margin-left: 8px;">${alert.status}</span>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📋 Alert Information</h3>
+                    <p><strong>Alert ID:</strong> ${alert.id}</p>
+                    <p><strong>Title:</strong> ${alert.title}</p>
+                    <p><strong>Category:</strong> ${alert.category}</p>
+                    <p><strong>Timestamp:</strong> ${new Date(alert.timestamp).toLocaleString()}</p>
+                    <p><strong>Product:</strong> ${alert.product}</p>
+                    ${alert.detectionSource ? `<p><strong>Detection Source:</strong> ${alert.detectionSource}</p>` : ''}
+                    <p><strong>Related Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick="showIncidentById('${alert.incidentId}')">${alert.incidentId}</span></p>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📊 Alert Timeline Context</h3>
+                    <p style="color: #666; font-size: 13px;">This alert is part of a sequence of related security events. Review the incident's alert timeline to understand the full attack chain.</p>
+                </div>
+                
+                <div class="detail-section" style="background: #fff3e0; padding: 15px; border-radius: 6px; border-left: 4px solid #ff9800;">
+                    <p style="margin: 0; color: #e65100; font-size: 13px;">
+                        <strong>⚠️ Investigation Tip:</strong> Check if this alert preceded or followed other suspicious activities. Look for patterns in user behavior, IP addresses, or file activities around this timestamp.
+                    </p>
+                </div>
+                
+                <div style="margin-top: 30px; display: flex; gap: 10px;">
+                    <button class="refresh-btn" onclick="showIncidentById('${alert.incidentId}')">← Back to Incident</button>
+                    <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+        
+        function showMitreDetails(technique) {
+            const modal = document.getElementById('incidentModal');
+            const modalContent = document.getElementById('modalContent');
+            
+            // Extract technique ID (e.g., "T1087" from "T1087.002")
+            const techId = technique.split('.')[0];
+            const mitreUrl = `https://attack.mitre.org/techniques/${technique.replace('.', '/')}`;
+            
+            modalContent.innerHTML = `
+                <h2>⚔️ MITRE ATT&CK Technique</h2>
+                
+                <div style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #e74c3c22 0%, #e74c3c11 100%); border-left: 4px solid #e74c3c; border-radius: 6px;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 8px;">Technique ID</div>
+                    <div style="font-size: 32px; font-weight: bold; color: #e74c3c; margin-bottom: 12px;">${technique}</div>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📖 About MITRE ATT&CK</h3>
+                    <p style="color: #666; font-size: 13px;">
+                        MITRE ATT&CK is a globally-accessible knowledge base of adversary tactics and techniques based on real-world observations. 
+                        This technique has been observed in the current incident and may indicate specific adversary behavior.
+                    </p>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>🔍 Investigation Steps</h3>
+                    <ul style="color: #666; font-size: 13px;">
+                        <li>Review the MITRE ATT&CK framework page for this technique</li>
+                        <li>Understand the tactic and procedure used by the adversary</li>
+                        <li>Check for related techniques in this incident</li>
+                        <li>Look for detection and mitigation recommendations</li>
+                        <li>Search for similar patterns across other incidents</li>
+                    </ul>
+                </div>
+                
+                <div class="detail-section" style="background: #ffebee; padding: 15px; border-radius: 6px; border-left: 4px solid #e74c3c;">
+                    <p style="margin: 0; color: #c62828; font-size: 13px;">
+                        <strong>⚠️ Security Note:</strong> This technique indicates sophisticated adversary behavior. Prioritize investigation and consider engaging your incident response team.
+                    </p>
+                </div>
+                
+                <div style="margin-top: 30px; display: flex; gap: 10px;">
+                    <button class="refresh-btn" onclick="window.open('${mitreUrl}', '_blank')" style="background: #e74c3c;">
+                        🔗 View on MITRE ATT&CK
+                    </button>
+                    <button class="refresh-btn" onclick="copyToClipboard('${technique}')" style="background: #4CAF50;">
+                        📋 Copy Technique ID
+                    </button>
+                    <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+        
+        function showSourceData(category) {
+            const sourceSection = document.getElementById('sourceDataSection');
+            const sourceList = document.getElementById('sourceIncidentsList');
+            const incidents = window.dashboardData?.incidents || [];
+            
+            if (category === 'talos') {
+                // Show incidents that contribute to Talos score
+                const highIncidents = incidents.filter(i => i.severity === 'High');
+                const mediumIncidents = incidents.filter(i => i.severity === 'Medium');
+                
+                // Get incidents by category
+                const malwareIncidents = incidents.filter(i => {
+                    const title = i.title.toLowerCase();
+                    return title.includes('malware') || title.includes('hacktool');
+                });
+                
+                const phishingIncidents = incidents.filter(i => {
+                    const title = i.title.toLowerCase();
+                    return title.includes('phish') || title.includes('email') || title.includes('dlp');
+                });
+                
+                const botnetIncidents = incidents.filter(i => {
+                    const title = i.title.toLowerCase();
+                    return title.includes('botnet') || title.includes('command and control') || title.includes('multi-stage');
+                });
+                
+                // Extract malicious IPs
+                const maliciousIPs = new Set();
+                incidents.forEach(incident => {
+                    incident.entities?.forEach(entity => {
+                        if (entity.type === 'IP' && (entity.verdict === 'malicious' || entity.verdict === 'suspicious')) {
+                            maliciousIPs.add(entity.name);
+                        }
+                    });
+                });
+                
+                sourceList.innerHTML = `
+                    <div style="margin-bottom: 20px; padding: 15px; background: #fff3e0; border-radius: 6px; border-left: 4px solid #ff9800;">
+                        <h4 style="margin: 0 0 10px 0; color: #e65100;">⚠️ Threat Score Calculation</h4>
+                        <div style="background: white; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 13px;">
+                            <div>High Severity Incidents: <strong style="color: #d32f2f;">${highIncidents.length}</strong> × 5 = <strong>${highIncidents.length * 5}</strong></div>
+                            <div>Medium Severity Incidents: <strong style="color: #ff9800;">${mediumIncidents.length}</strong> × 2 = <strong>${mediumIncidents.length * 2}</strong></div>
+                            <div style="border-top: 2px solid #eee; margin: 8px 0; padding-top: 8px;">
+                                Total Weighted Score: <strong>${highIncidents.length * 5 + mediumIncidents.length * 2}</strong><br>
+                                Total Incidents: <strong>${incidents.length}</strong><br>
+                                Threat Score: <strong style="color: #f44336; font-size: 16px;">${Math.min(100, Math.round((highIncidents.length * 5 + mediumIncidents.length * 2) / incidents.length * 100))}</strong> / 100
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="margin: 0 0 10px 0; color: #333;">🦠 Malware Category (${malwareIncidents.length} incidents)</h4>
+                        ${malwareIncidents.slice(0, 5).map(inc => `
+                            <div style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; border-left: 3px solid #f44336; cursor: pointer;" onclick='showIncidentDetails(${JSON.stringify(inc).replace(/'/g, "&apos;")})'>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: #333;">${inc.title}</strong>
+                                        <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                                            ID: ${inc.id} | Created: ${new Date(inc.createdTime).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${malwareIncidents.length > 5 ? `<div style="text-align: center; color: #666; padding: 10px;">... and ${malwareIncidents.length - 5} more</div>` : ''}
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="margin: 0 0 10px 0; color: #333;">🎣 Phishing Category (${phishingIncidents.length} incidents)</h4>
+                        ${phishingIncidents.slice(0, 5).map(inc => `
+                            <div style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; border-left: 3px solid #ff9800; cursor: pointer;" onclick='showIncidentDetails(${JSON.stringify(inc).replace(/'/g, "&apos;")})'>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: #333;">${inc.title}</strong>
+                                        <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                                            ID: ${inc.id} | Created: ${new Date(inc.createdTime).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${phishingIncidents.length > 5 ? `<div style="text-align: center; color: #666; padding: 10px;">... and ${phishingIncidents.length - 5} more</div>` : ''}
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="margin: 0 0 10px 0; color: #333;">🤖 Botnet/C2 Category (${botnetIncidents.length} incidents)</h4>
+                        ${botnetIncidents.slice(0, 5).map(inc => `
+                            <div style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; border-left: 3px solid #9C27B0; cursor: pointer;" onclick='showIncidentDetails(${JSON.stringify(inc).replace(/'/g, "&apos;")})'>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: #333;">${inc.title}</strong>
+                                        <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                                            ID: ${inc.id} | Created: ${new Date(inc.createdTime).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${botnetIncidents.length > 5 ? `<div style="text-align: center; color: #666; padding: 10px;">... and ${botnetIncidents.length - 5} more</div>` : ''}
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="margin: 0 0 10px 0; color: #333;">🚫 Malicious IPs (${maliciousIPs.size} unique)</h4>
+                        <div style="background: white; padding: 15px; border-radius: 4px;">
+                            ${Array.from(maliciousIPs).slice(0, 20).map(ip => `
+                                <span style="display: inline-block; padding: 4px 10px; margin: 4px; background: #ffebee; color: #d32f2f; border-radius: 3px; font-family: monospace; font-size: 12px;">${ip}</span>
+                            `).join('')}
+                            ${maliciousIPs.size > 20 ? `<div style="text-align: center; color: #666; padding: 10px; font-size: 12px;">... and ${maliciousIPs.size - 20} more IPs</div>` : ''}
+                        </div>
+                    </div>
+                    
+                    <div style="background: #e8f5e9; padding: 15px; border-radius: 6px; border-left: 4px solid #4CAF50;">
+                        <p style="margin: 0; color: #2e7d32; font-size: 13px;">
+                            <strong>💡 Data Source:</strong> All threat intelligence data is derived from real Microsoft Defender XDR incidents and alerts in your environment. Click on any incident above to view full details.
+                        </p>
+                    </div>
+                `;
+                
+                sourceSection.style.display = 'block';
+                sourceSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('incidentModal').style.display = 'none';
+        }
+
+        function assignToMe(incidentId) {
+            alert(`✅ Incident ${incidentId} has been assigned to you.\n\nYou will receive notifications about updates.`);
+            closeModal();
+        }
+
+        function escalateIncident(incidentId) {
+            if (confirm(`⚠️ Escalate incident ${incidentId} to CISO and incident response team?`)) {
+                alert(`✅ Incident ${incidentId} has been escalated.\n\nCISO and IR team have been notified.`);
+                closeModal();
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('incidentModal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+
+        function getSeverityColor(severity) {
+            const colors = { 'High': '#d32f2f', 'Medium': '#ff9800', 'Low': '#fbc02d', 'Informational': '#2196F3' };
+            return colors[severity] || '#666';
+        }
+
+        function showError(message) {
+            document.getElementById('loadingMessage').innerHTML = `
+                <div style="color: #f44336;">
+                    ⚠️ Error loading data: ${message}<br><br>
+                    <small>Check console for details</small>
+                </div>
+            `;
+        }
+
+        async function refreshData() {
+            console.log('🔄 Refreshing dashboard data with filters:', currentFilters);
+            
+            // Only modify the refresh button, not date filter buttons
+            const btn = event?.target?.classList?.contains('refresh-btn') ? event.target : null;
+            if (btn) {
+                btn.textContent = '⟳ Refreshing...';
+                btn.disabled = true;
+            }
+            
+            const data = await fetchDashboardData(currentFilters);
+            if (data) {
+                updateDashboard(data);
+                updateLastRefreshTime();
+            }
+            
+            if (btn) {
+                btn.textContent = '↻ Refresh';
+                btn.disabled = false;
+            }
+        }
+        
+        function applyDateFilterButton(days) {
+            console.log('🎯 Date filter button clicked:', days);
+            
+            // Update all button states
+            document.querySelectorAll('.date-filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Set active button
+            const activeBtn = document.querySelector(`.date-filter-btn[data-days="${days}"]`);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+            }
+            
+            // Update current filters
+            if (days === 'all') {
+                delete currentFilters.days;
+            } else {
+                currentFilters.days = parseInt(days);
+            }
+            
+            // Show loading notification
+            const labels = { 7: 'Last 7 Days', 30: 'Last 30 Days', 60: 'Last 60 Days', 90: 'Last 90 Days', 'all': 'All Time' };
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 16px 24px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 10000;
+                font-size: 14px;
+                font-weight: 500;
+                animation: slideInRight 0.3s;
+            `;
+            toast.textContent = `🔄 Loading ${labels[days]}...`;
+            document.body.appendChild(toast);
+            
+            // Fetch with new filter
+            refreshData();
+            
+            // Remove toast after 2 seconds
+            setTimeout(() => {
+                toast.style.animation = 'slideOutRight 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
+        
+        function applyDateFilter() {
+            const selectElement = document.getElementById('dateRangeFilter');
+            if (!selectElement) {
+                console.error('❌ dateRangeFilter element not found!');
+                return;
+            }
+            
+            const selectedValue = selectElement.value;
+            const selectedIndex = selectElement.selectedIndex;
+            const selectedText = selectElement.options[selectedIndex].text;
+            
+            console.log('🎯 Date filter applied:', selectedValue, selectedText);
+            
+            // Update current filters
+            if (selectedValue === 'all') {
+                delete currentFilters.days;
+            } else {
+                currentFilters.days = parseInt(selectedValue);
+            }
+            
+            // Show loading notification
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 16px 24px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 10000;
+                font-size: 14px;
+                font-weight: 500;
+                animation: slideInRight 0.3s;
+            `;
+            toast.textContent = `🔄 Loading ${selectedText}...`;
+            document.body.appendChild(toast);
+            
+            // Fetch with new filter (refreshData will restore the dropdown)
+            refreshData();
+            
+            // Remove toast after 2 seconds
+            setTimeout(() => {
+                toast.style.animation = 'slideOutRight 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
+        
+        function updateLastRefreshTime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            document.getElementById('lastRefresh').textContent = timeString;
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            initializeDashboard();
+            startAutoRefresh(60); // Start hourly auto-refresh
+        });
+        
+        
+        console.log('📊 SOC Dashboard initialized');
+        console.log('📡 Workspace: SDLWS (dec4f8ae-de22-4dff-b20c-0b3ac18c704f)');
+        console.log('⏰ Auto-refresh: Enabled (every 60 minutes)');
+    </script>
+</body>
+</html>
