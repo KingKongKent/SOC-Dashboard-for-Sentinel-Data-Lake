@@ -88,8 +88,8 @@
         .secure-score { color: #0078d4; }
         .critical-incidents { color: #d32f2f; }
         .high-alerts { color: #ff9800; }
-        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; margin-bottom: 25px; }
-        .chart-card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .chart-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); max-height: 320px; }
         .chart-card.full-width { grid-column: 1 / -1; }
         .chart-title { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 20px; }
         .incidents-table { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow-x: auto; }
@@ -283,16 +283,59 @@
 
             <div class="chart-grid">
                 <div class="chart-card">
-                    <div class="chart-title">Alert Volume Trend</div>
-                    <canvas id="alertVolumeChart"></canvas>
+                    <div class="chart-title" style="font-size: 15px;">Alert Volume Trend</div>
+                    <canvas id="alertVolumeChart" style="max-height: 240px;"></canvas>
                 </div>
                 <div class="chart-card">
-                    <div class="chart-title">Incidents by Severity</div>
-                    <canvas id="severityChart"></canvas>
+                    <div class="chart-title" style="font-size: 15px;">Incidents by Severity</div>
+                    <canvas id="severityChart" style="max-height: 240px;"></canvas>
                 </div>
                 <div class="chart-card">
-                    <div class="chart-title">Incidents by Status</div>
-                    <canvas id="statusChart"></canvas>
+                    <div class="chart-title" style="font-size: 15px;">Incidents by Status</div>
+                    <canvas id="statusChart" style="max-height: 240px;"></canvas>
+                </div>
+            </div>
+
+            <!-- MDTI Threat Intelligence Articles -->
+            <h2 style="color: white; margin: 30px 0 20px 0; font-size: 24px;">
+                📰 Latest Threat Intelligence - Microsoft Defender TI
+            </h2>
+            <div class="kpi-grid" style="margin-bottom: 25px;">
+                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #d32f2f;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
+                    <div class="kpi-header">
+                        <span class="kpi-title" style="color: #d32f2f; font-size: 12px;">🚨 Critical</span>
+                        <span class="kpi-icon">🔒</span>
+                    </div>
+                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">Ransomware Groups Leverage Zero-Day Exploits</div>
+                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
+                    <small style="color: #999; font-size: 11px;">📅 2 days ago • 🏷️ Ransomware, Zero-Day</small>
+                </div>
+                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #ff9800;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
+                    <div class="kpi-header">
+                        <span class="kpi-title" style="color: #ff9800; font-size: 12px;">⚠️ High</span>
+                        <span class="kpi-icon">🌐</span>
+                    </div>
+                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">State-Sponsored APT Campaigns Targeting Cloud Infrastructure</div>
+                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
+                    <small style="color: #999; font-size: 11px;">📅 5 days ago • 🏷️ APT, Cloud Security</small>
+                </div>
+                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #0078d4;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
+                    <div class="kpi-header">
+                        <span class="kpi-title" style="color: #0078d4; font-size: 12px;">ℹ️ Info</span>
+                        <span class="kpi-icon">📧</span>
+                    </div>
+                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">Business Email Compromise Tactics and Detection Strategies</div>
+                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
+                    <small style="color: #999; font-size: 11px;">📅 1 week ago • 🏷️ Phishing, BEC</small>
+                </div>
+                <div class="kpi-card" style="cursor: pointer; border-left: 4px solid #388e3c;" onclick="window.open('https://www.microsoft.com/en-us/security/blog/threat-intelligence/', '_blank')" title="Click to view full article">
+                    <div class="kpi-header">
+                        <span class="kpi-title" style="color: #388e3c; font-size: 12px;">✅ Advisory</span>
+                        <span class="kpi-icon">🛡️</span>
+                    </div>
+                    <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 10px; line-height: 1.4;">Best Practices for Securing Identity and Access Management</div>
+                    <small style="color: #666; display: block; margin-bottom: 8px;">Microsoft Threat Intelligence</small>
+                    <small style="color: #999; font-size: 11px;">📅 2 weeks ago • 🏷️ IAM, Best Practices</small>
                 </div>
             </div>
 
