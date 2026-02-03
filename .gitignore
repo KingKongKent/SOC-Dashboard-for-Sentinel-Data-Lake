@@ -16,6 +16,13 @@ dist/
 config.py
 secrets.json
 
+# Database files - Created during setup
+*.db
+*.db-journal
+soc_dashboard.db
+soc_dashboard.db.backup
+dashboard_data.json.backup
+
 # IDE
 .vscode/
 .idea/
