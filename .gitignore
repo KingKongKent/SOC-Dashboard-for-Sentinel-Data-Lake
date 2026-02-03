@@ -21,7 +21,14 @@ secrets.json
 *.db-journal
 soc_dashboard.db
 soc_dashboard.db.backup
+
+# Generated data files - Created during setup
+dashboard_data.json
 dashboard_data.json.backup
+*.backup
+
+# Logs
+*.log
 
 # IDE
 .vscode/
