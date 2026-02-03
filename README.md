@@ -12,7 +12,7 @@ pip install -r requirements.txt
 ### 2. Configure Credentials
 Create a `.env` file with your Azure credentials:
 ```env
-# Azure AD Application
+# Microsoft Entra ID Application
 CLIENT_ID=your-app-id-here
 CLIENT_SECRET=your-client-secret-here
 TENANT_ID=your-tenant-id-here
@@ -206,8 +206,8 @@ SENTINEL_WORKSPACE_ID=your-workspace-id-here
 SENTINEL_WORKSPACE_NAME=your-workspace-name
 ```
 
-### Azure AD Application
-Configure your Azure AD app credentials in `.env` file:
+### Microsoft Entra ID Application
+Configure your Entra ID app credentials in `.env` file:
 ```env
 CLIENT_ID=your-app-id-here
 TENANT_ID=your-tenant-id-here
@@ -260,7 +260,7 @@ python rollback_to_json.py
   - Microsoft Defender MCP (`mcp_triage_mcp_se_ListAlerts`, `mcp_triage_mcp_se_ListIncidents`)
   - Microsoft Sentinel MCP (`mcp_microsoft_sen2_query_lake`)
   - Microsoft Graph API (`/security/secureScores`, `/security/secureScoreControlProfiles`)
-- **Authentication**: Azure AD OAuth2 (Client Credentials Flow)
+- **Authentication**: Microsoft Entra ID OAuth2 (Client Credentials Flow)
 - **Threat Intel APIs**: VirusTotal, Cisco Talos, AbuseIPDB
 
 ## 🎯 Interactive Features

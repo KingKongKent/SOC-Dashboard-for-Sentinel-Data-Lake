@@ -21,10 +21,10 @@ if sys.platform == 'win32':
 load_dotenv()
 
 # Sentinel workspace configuration
-WORKSPACE_ID = "dec4f8ae-de22-4dff-b20c-0b3ac18c704f"
-WORKSPACE_NAME = "SDLWS"
+WORKSPACE_ID = os.getenv('SENTINEL_WORKSPACE_ID', '').strip()
+WORKSPACE_NAME = os.getenv('SENTINEL_WORKSPACE_NAME', '').strip()
 
-# Azure AD credentials for Microsoft Graph API
+# Microsoft Entra ID credentials for Microsoft Graph API
 CLIENT_ID = os.getenv('CLIENT_ID', '').strip()
 CLIENT_SECRET = os.getenv('CLIENT_SECRET', '').strip()
 TENANT_ID = os.getenv('TENANT_ID', '').strip()
@@ -43,7 +43,7 @@ def get_graph_access_token():
     Get access token for Microsoft Graph API
     """
     if not all([CLIENT_ID, CLIENT_SECRET, TENANT_ID]):
-        print("  ⚠️  Azure AD credentials not configured in .env file")
+        print("  ⚠️  Microsoft Entra ID credentials not configured in .env file")
         return None
     
     try:
