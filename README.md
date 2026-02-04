@@ -263,8 +263,9 @@ python append_data.py          # Append to database (optional)
 
 ### Option 2: Automated Hourly Refresh
 ```bash
-# Run in terminal (stays active)
 python hourly_refresh.py
+# Runs continuously, refreshing data every hour
+# Press Ctrl+C to stop
 ```
 
 ### Option 3: Frontend Auto-Refresh
