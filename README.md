@@ -270,11 +270,6 @@ python hourly_refresh.py
 ### Option 3: Frontend Auto-Refresh
 The dashboard automatically refreshes every 60 minutes while open in browser.
 
-### Rollback to JSON Mode (Emergency)
-```bash
-python rollback_to_json.py
-```
-
 ## 💻 Technologies
 
 - **Frontend**: HTML5, CSS3, JavaScript, Chart.js 4.4.0
