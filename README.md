@@ -64,9 +64,6 @@ git grep -E "(CLIENT_ID|CLIENT_SECRET|TENANT_ID|API_KEY)" -- '*.py' '*.md'
 ```bash
 # Fetch live data and populate database
 python fetch_live_data.py
-
-# Migrate data to SQLite (first time only)
-python migrate_json_to_db.py
 ```
 
 ### 5. Start Dashboard Server
@@ -166,21 +163,16 @@ Demo1/
 ├── dashboard_backend.py              # Flask API server (SQLite mode)
 ├── fetch_live_data.py                # Data collection script
 ├── database.py                       # SQLite database operations
-├── migrate_json_to_db.py            # JSON to SQLite migration
 ├── append_data.py                    # Append new data to DB
 ├── hourly_refresh.py                # Automated hourly refresh
-├── rollback_to_json.py              # Emergency rollback script
 ├── setup_task_scheduler.ps1         # Windows Task Scheduler setup
 ├── start_hourly_refresh.bat         # Windows service launcher
 ├── soc_dashboard.db                 # SQLite database (100+ incidents)
-├── dashboard_data.json              # Legacy JSON backup
 ├── requirements.txt                  # Python dependencies
 ├── .env                             # Azure credentials (Git-ignored)
 ├── .gitignore                       # Prevents credential commits
-├── README.md                        # This file
-├── DATABASE_MIGRATION_README.md     # Migration documentation
-├── DATE_FILTER_AND_REFRESH_README.md # Feature documentation
-└── MIGRATION_SUCCESS.md             # Migration results
+├── LICENSE                          # MIT License
+└── README.md                        # This file
 ```
 
 ## 🗄️ Database Architecture
@@ -347,26 +339,7 @@ The dashboard displays threat indicators from multiple sources:
 - ⚠️ For production: Implement rate limiting and authentication
 - ⚠️ For production: Use Azure Key Vault for secrets management
 
-## 🚧 Migration & Rollback
-
-### Database Migration (Already Completed)
-```bash
-python migrate_json_to_db.py
-```
-- ✅ Migrated 100 incidents
-- ✅ Migrated 316 alerts
-- ✅ Extracted 191 entities
-- ✅ Date range: 2026-01-09 to 2026-02-03
-
-### Rollback to JSON (If Needed)
-```bash
-python rollback_to_json.py
-```
-- Restores original JSON-based system
-- Keeps database backup as `soc_dashboard.db.backup`
-- Reverts backend to JSON mode
-
-## 🔮 Future Enhancements
+##  Future Enhancements
 
 - [x] SQLite database for historical data
 - [x] Timeline filtering (7/30/60/90/all days)
