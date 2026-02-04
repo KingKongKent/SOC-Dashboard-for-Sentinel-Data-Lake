@@ -27,6 +27,12 @@ dashboard_data.json
 dashboard_data.json.backup
 *.backup
 
+# Migration scripts - Not needed in repo
+migrate_json_to_db.py
+rollback_to_json.py
+DATABASE_MIGRATION_README.md
+MIGRATION_SUCCESS.md
+
 # Logs
 *.log
 
