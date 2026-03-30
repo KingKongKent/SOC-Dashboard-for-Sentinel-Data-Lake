@@ -1,5 +1,8 @@
-# Python
-__pycache__/
+# ===========================================================
+# SOC Dashboard .gitignore — SECURITY-FIRST
+# ===========================================================
+
+# ---- Python ----
 *.py[cod]
 *$py.class
 *.so
@@ -10,42 +13,64 @@ ENV/
 build/
 dist/
 *.egg-info/
+__pycache__/
+*.pyo
 
-# Environment Variables - NEVER COMMIT
+# ---- Secrets / Credentials — NEVER COMMIT ----
 .env
+.env.*
+!.env.example
 config.py
 secrets.json
+*.pem
+*.key
+*.pfx
+*.p12
+*credentials*
+*secret*
+!SECURITY.md
 
-# Database files - Created during setup
+# ---- Database files — Created at runtime ----
 *.db
 *.db-journal
 soc_dashboard.db
 soc_dashboard.db.backup
 
-# Generated data files - Created during setup
+# ---- Generated data — Created at runtime ----
 dashboard_data.json
 dashboard_data.json.backup
 *.backup
 
-# Migration scripts - Not needed in repo
+# ---- Migration artifacts ----
 migrate_json_to_db.py
 rollback_to_json.py
 DATABASE_MIGRATION_README.md
 MIGRATION_SUCCESS.md
 
-# Logs
+# ---- Logs ----
 *.log
+logs/
 
-# IDE
+# ---- IDE ----
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# ---- OS ----
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Logs
-*.log
+# ---- Node (if frontend ever added) ----
+node_modules/
+.next/
+.nuxt/
+
+# ---- Flask session files ----
+flask_sessions/
+
+# ---- Test / scratch scripts ----
+parse_api.py
+test_graph.py

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOC Dashboard — Initial Setup</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0e17; color: #e2e8f0;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        .setup-container { max-width: 620px; width: 100%; }
+        .logo { text-align: center; margin-bottom: 32px; }
+        .logo h1 { font-size: 24px; color: #60a5fa; margin-bottom: 4px; }
+        .logo p { color: #94a3b8; font-size: 14px; }
+        .card {
+            background: #1e293b; border-radius: 12px; padding: 32px;
+            border: 1px solid #334155;
+        }
+        .section { margin-bottom: 28px; }
+        .section:last-of-type { margin-bottom: 0; }
+        .section h2 {
+            font-size: 15px; color: #60a5fa; margin-bottom: 16px;
+            padding-bottom: 8px; border-bottom: 1px solid #334155;
+        }
+        .field { margin-bottom: 16px; }
+        .field:last-child { margin-bottom: 0; }
+        .field label {
+            display: block; font-size: 13px; color: #94a3b8;
+            margin-bottom: 6px; font-weight: 500;
+        }
+        .field label .req { color: #f87171; margin-left: 2px; }
+        .field input {
+            width: 100%; padding: 10px 14px;
+            background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+            color: #e2e8f0; font-size: 14px; outline: none;
+            transition: border-color 0.2s;
+        }
+        .field input:focus { border-color: #60a5fa; }
+        .field input::placeholder { color: #475569; }
+        .field .hint { font-size: 12px; color: #64748b; margin-top: 4px; }
+        .actions { display: flex; gap: 12px; margin-top: 28px; }
+        .btn {
+            padding: 12px 24px; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: all 0.2s; flex: 1; text-align: center;
+        }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-primary:disabled { background: #1e3a5f; color: #64748b; cursor: not-allowed; }
+        .btn-secondary { background: #334155; color: #e2e8f0; }
+        .btn-secondary:hover { background: #475569; }
+        .status {
+            padding: 12px 16px; border-radius: 8px; font-size: 13px;
+            margin-top: 16px; display: none;
+        }
+        .status.success { display: block; background: #064e3b; color: #6ee7b7; border: 1px solid #065f46; }
+        .status.error   { display: block; background: #4c0519; color: #fda4af; border: 1px solid #881337; }
+        .status.info    { display: block; background: #1e3a5f; color: #93c5fd; border: 1px solid #1e40af; }
+        .spinner {
+            display: inline-block; width: 14px; height: 14px;
+            border: 2px solid #475569; border-top-color: #60a5fa;
+            border-radius: 50%; animation: spin 0.6s linear infinite;
+            vertical-align: middle; margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="logo">
+            <h1>&#128737; SOC Dashboard</h1>
+            <p>Initial Setup &mdash; Configure your Microsoft Entra ID connection</p>
+        </div>
+        <div class="card">
+            <div class="section">
+                <h2>&#128273; Entra ID Authentication</h2>
+                <div class="field">
+                    <label>Tenant ID <span class="req">*</span></label>
+                    <input type="text" id="TENANT_ID" placeholder="e.g. 12345678-abcd-1234-abcd-123456789abc">
+                    <div class="hint">Azure Portal &rarr; Entra ID &rarr; Overview &rarr; Tenant ID</div>
+                </div>
+                <div class="field">
+                    <label>Client ID <span class="req">*</span></label>
+                    <input type="text" id="CLIENT_ID" placeholder="e.g. abcdef01-2345-6789-abcd-ef0123456789">
+                    <div class="hint">Application (client) ID from your Entra app registration</div>
+                </div>
+                <div class="field">
+                    <label>Client Secret <span class="req">*</span></label>
+                    <input type="password" id="CLIENT_SECRET" placeholder="Enter client secret value">
+                    <div class="hint">Secret value (not the secret ID) from Certificates &amp; secrets</div>
+                </div>
+                <div class="field">
+                    <label>Redirect URI</label>
+                    <input type="text" id="REDIRECT_URI" placeholder="Auto-detected from browser URL">
+                    <div class="hint">Must match the redirect URI in your Entra app registration.
+                        Leave blank to auto-detect from the current URL.</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>&#128101; Access Control</h2>
+                <div class="field">
+                    <label>Admin Users <span class="req">*</span></label>
+                    <input type="text" id="ADMIN_USERS" placeholder="admin@yourdomain.com, soc-lead@yourdomain.com">
+                    <div class="hint">Comma-separated email addresses that can access the Settings panel</div>
+                </div>
+                <div class="field">
+                    <label>Escalation Email</label>
+                    <input type="text" id="ESCALATION_EMAIL" placeholder="soc-team@yourdomain.com">
+                    <div class="hint">Notified when incidents are escalated (requires Mail.Send permission)</div>
+                </div>
+            </div>
+
+            <div id="status" class="status"></div>
+
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="testConnection()">Test Connection</button>
+                <button class="btn btn-primary" id="saveBtn" onclick="saveSetup()">Save &amp; Continue &rarr;</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+
+        function showStatus(msg, type) {
+            statusEl.className = 'status ' + type;
+            statusEl.innerHTML = msg;
+        }
+
+        function getValues() {
+            const keys = ['TENANT_ID','CLIENT_ID','CLIENT_SECRET','REDIRECT_URI','ADMIN_USERS','ESCALATION_EMAIL'];
+            const data = {};
+            keys.forEach(k => {
+                const v = document.getElementById(k).value.trim();
+                if (v) data[k] = v;
+            });
+            return data;
+        }
+
+        function validateRequired(data) {
+            if (!data.TENANT_ID || !data.CLIENT_ID || !data.CLIENT_SECRET) {
+                showStatus('Tenant ID, Client ID, and Client Secret are required.', 'error');
+                return false;
+            }
+            return true;
+        }
+
+        async function testConnection() {
+            const data = getValues();
+            if (!validateRequired(data)) return;
+            showStatus('<span class="spinner"></span> Testing connection&hellip;', 'info');
+            try {
+                const resp = await fetch('/api/setup/test-connection', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data),
+                });
+                const result = await resp.json();
+                showStatus(result.message, result.success ? 'success' : 'error');
+            } catch {
+                showStatus('Network error &mdash; check server logs.', 'error');
+            }
+        }
+
+        async function saveSetup() {
+            const data = getValues();
+            if (!validateRequired(data)) return;
+            if (!data.ADMIN_USERS) {
+                showStatus('At least one admin email is required for settings access.', 'error');
+                return;
+            }
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = true;
+            btn.textContent = 'Saving\u2026';
+            showStatus('<span class="spinner"></span> Saving configuration&hellip;', 'info');
+            try {
+                const resp = await fetch('/api/setup', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data),
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    showStatus('\u2705 Configuration saved! Redirecting to login&hellip;', 'success');
+                    setTimeout(() => { window.location.href = '/login'; }, 1500);
+                } else {
+                    showStatus(result.error || 'Save failed.', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Save &amp; Continue &rarr;';
+                }
+            } catch {
+                showStatus('Network error &mdash; check server logs.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Save &amp; Continue &rarr;';
+            }
+        }
+
+        // Auto-fill redirect URI placeholder from current origin
+        document.getElementById('REDIRECT_URI').placeholder =
+            window.location.origin + '/auth/callback';
+    </script>
+</body>
+</html>

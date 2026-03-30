@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SOC Dashboard - LIVE - Microsoft Sentinel & Defender</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -174,6 +175,8 @@
         .status-active { background: #ffebee; color: #c62828; }
         .status-investigating { background: #e3f2fd; color: #1565c0; }
         .status-resolved { background: #e8f5e9; color: #2e7d32; }
+        .status-redirected { background: #f3e5f5; color: #7b1fa2; }
+        .status-inprogress { background: #fff3e0; color: #e65100; }
         .clickable { cursor: pointer; transition: transform 0.2s; }
         .clickable:hover { transform: scale(1.02); }
         .detail-section {
@@ -206,13 +209,163 @@
                 opacity: 0;
             }
         }
+        /* User info & logout in header */
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-left: 20px;
+        }
+        .user-name {
+            font-size: 13px;
+            color: #555;
+            font-weight: 500;
+            max-width: 160px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .logout-btn {
+            background: transparent;
+            color: #d32f2f;
+            border: 1px solid #d32f2f;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .logout-btn:hover { background: #d32f2f; color: white; }
+        .settings-btn {
+            background: transparent;
+            color: #666;
+            border: 1px solid #ddd;
+            padding: 8px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            transition: all 0.2s;
+        }
+        .settings-btn:hover { background: #f0f4f8; border-color: #2980b9; color: #2980b9; }
+        /* Data source badge */
+        .source-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-left: 6px;
+        }
+        .source-live { background: #e8f5e9; color: #2e7d32; }
+        .source-sentinel { background: #e3f2fd; color: #1565c0; }
+        .source-demo { background: #fff3e0; color: #e65100; }
+        /* Settings overlay */
+        .settings-overlay {
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            animation: fadeIn 0.3s;
+            display: none;
+        }
+        .settings-panel {
+            background: white;
+            margin: 3% auto;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            animation: slideUp 0.3s;
+        }
+        .settings-panel h2 {
+            color: #1e3c72;
+            margin-bottom: 5px;
+        }
+        .settings-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+        .settings-section h3 {
+            color: #1e3c72;
+            margin-bottom: 12px;
+            font-size: 15px;
+        }
+        .settings-field {
+            margin-bottom: 14px;
+        }
+        .settings-field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 4px;
+        }
+        .settings-field input {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: 'Segoe UI', sans-serif;
+            transition: border-color 0.2s;
+        }
+        .settings-field input:focus {
+            outline: none;
+            border-color: #0078d4;
+            box-shadow: 0 0 0 2px rgba(0,120,212,0.15);
+        }
+        .settings-field small {
+            color: #999;
+            font-size: 11px;
+        }
+        .settings-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .settings-actions button {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #0078d4; color: white; }
+        .btn-primary:hover { background: #005a9e; }
+        .btn-secondary { background: #f0f4f8; color: #333; border: 1px solid #ddd !important; }
+        .btn-secondary:hover { background: #e0e7ef; }
+        .btn-danger { background: #d32f2f; color: white; }
+        .btn-danger:hover { background: #b71c1c; }
+        .settings-status {
+            margin-top: 12px;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: none;
+        }
+        .settings-status.success { display: block; background: #e8f5e9; color: #2e7d32; }
+        .settings-status.error { display: block; background: #ffebee; color: #c62828; }
     </style>
 </head>
 <body>
     <div class="dashboard-container">
         <div class="header">
             <div>
-                <h1>🛡️ SOC Dashboard<span class="live-badge">● LIVE</span></h1>
+                <h1>🛡️ SOC Dashboard<span class="live-badge">● LIVE</span><span id="sourceBadge" class="source-badge source-demo" style="display:none;"></span></h1>
                 <small style="color: #666;">Microsoft Sentinel & Defender for Endpoint</small>
             </div>
             <div class="header-info">
@@ -228,6 +381,11 @@
                         <small style="color: #999; font-size: 11px;">Last refresh: <span id="lastRefresh">--</span></small>
                     </div>
                     <button class="refresh-btn" onclick="refreshData()" title="Refresh dashboard data">↻ Refresh</button>
+                </div>
+                <div class="user-section" id="userSection" style="display:none;">
+                    <button class="settings-btn" id="settingsBtn" onclick="openSettings()" title="Settings (Admin only)" style="display:none;">⚙</button>
+                    <span class="user-name" id="userName"></span>
+                    <button class="logout-btn" onclick="window.location.href='/logout'">Logout</button>
                 </div>
             </div>
         </div>
@@ -385,6 +543,9 @@
                         <button class="filter-btn" onclick="filterIncidents('Low')">Low</button>
                         <button class="filter-btn" onclick="filterIncidents('Informational')">Informational</button>
                         <button class="filter-btn" onclick="filterIncidents('Active')">Active</button>
+                        <label style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;font-size:12px;color:#666;cursor:pointer;user-select:none;" title="Redirected incidents were merged into another incident and create noise">
+                            <input type="checkbox" id="hideRedirected" checked onchange="renderIncidentsTable()" style="cursor:pointer;"> Hide Redirected
+                        </label>
                     </div>
                 </div>
                 <table>
@@ -405,7 +566,7 @@
             </div>
 
             <div class="info-banner">
-                <strong>📡 Data Source:</strong> Workspace SDLWS (dec4f8ae-de22-4dff-b20c-0b3ac18c704f)<br>
+                <strong>📡 Data Source:</strong> <span id="dataSourceLabel">Loading...</span><br>
                 Last updated: <span id="lastUpdated">--</span>
             </div>
         </div>
@@ -419,13 +580,234 @@
         </div>
     </div>
 
+    <!-- Settings Overlay -->
+    <div id="settingsOverlay" class="settings-overlay" onclick="if(event.target===this)closeSettings()">
+        <div class="settings-panel">
+            <span class="modal-close" onclick="closeSettings()">&times;</span>
+            <h2>⚙ Dashboard Settings</h2>
+            <small style="color:#999;">Changes are saved to the database and take effect on the next data refresh.</small>
+
+            <div class="settings-section">
+                <h3>🔑 Entra ID / API Credentials</h3>
+                <div class="settings-field">
+                    <label>Tenant ID</label>
+                    <input type="text" id="cfg_TENANT_ID" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                </div>
+                <div class="settings-field">
+                    <label>Client ID</label>
+                    <input type="text" id="cfg_CLIENT_ID" placeholder="App registration Application (client) ID">
+                </div>
+                <div class="settings-field">
+                    <label>Client Secret</label>
+                    <input type="password" id="cfg_CLIENT_SECRET" placeholder="••••••••  (leave blank to keep current)">
+                    <small>Encrypted at rest. Leave blank to keep the existing secret.</small>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>📡 Data Sources</h3>
+                <div class="settings-field">
+                    <label>Log Analytics Workspace ID</label>
+                    <input type="text" id="cfg_SENTINEL_WORKSPACE_ID" placeholder="Sentinel workspace GUID">
+                </div>
+                <div class="settings-field">
+                    <label>Workspace Name</label>
+                    <input type="text" id="cfg_SENTINEL_WORKSPACE_NAME" placeholder="e.g. SDLWS">
+                </div>
+                <div class="settings-field">
+                    <label>VirusTotal API Key</label>
+                    <input type="password" id="cfg_VIRUSTOTAL_API_KEY" placeholder="••••••••  (leave blank to keep current)">
+                    <small>Encrypted at rest.</small>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>⏱ Refresh Interval</h3>
+                <div class="settings-field">
+                    <label>Refresh every (minutes)</label>
+                    <input type="number" id="cfg_REFRESH_INTERVAL_MINUTES" min="1" max="1440" placeholder="60">
+                    <small>How often the backend fetches new data (1 – 1440 min).</small>
+                </div>
+            </div>
+
+            <div class="settings-actions">
+                <button class="btn-primary" onclick="saveSettings()">💾 Save Settings</button>
+                <button class="btn-secondary" onclick="testConnection()">🔌 Test Connection</button>
+                <button class="btn-secondary" onclick="triggerRefreshNow()">🔄 Refresh Data Now</button>
+                <button class="btn-danger" onclick="closeSettings()">Cancel</button>
+            </div>
+            <div id="settingsStatus" class="settings-status"></div>
+        </div>
+    </div>
+
     <script>
         const API_URL = '/api/dashboard-data';
         let charts = {};
         let autoRefreshInterval = null;
         let currentFilters = { days: 30 };
+        let currentUser = null;
 
-        // Start auto-refresh on page load (every hour = 3600000ms)
+        // ── Auth: check login state and load user info ──
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/me');
+                if (res.status === 401) {
+                    window.location.href = '/login';
+                    return false;
+                }
+                if (!res.ok) throw new Error('Auth check failed');
+                currentUser = await res.json();
+                // Show user section
+                document.getElementById('userName').textContent = currentUser.name || currentUser.email;
+                document.getElementById('userSection').style.display = 'flex';
+                // Show settings gear for admins
+                if (currentUser.is_admin) {
+                    document.getElementById('settingsBtn').style.display = '';
+                }
+                return true;
+            } catch (e) {
+                console.error('Auth check error:', e);
+                window.location.href = '/login';
+                return false;
+            }
+        }
+
+        // ── Settings overlay ──
+        async function openSettings() {
+            const overlay = document.getElementById('settingsOverlay');
+            const status = document.getElementById('settingsStatus');
+            status.className = 'settings-status';
+            status.textContent = '';
+            overlay.style.display = 'block';
+            // Load current values
+            try {
+                const res = await fetch('/api/settings');
+                if (res.status === 403) { alert('Admin access required.'); overlay.style.display = 'none'; return; }
+                if (!res.ok) throw new Error('Failed to load settings');
+                const cfg = await res.json();
+                Object.entries(cfg).forEach(([key, val]) => {
+                    const input = document.getElementById('cfg_' + key);
+                    if (input) {
+                        // Don't fill password fields with masked values
+                        if (input.type === 'password') {
+                            input.value = '';
+                            input.placeholder = val ? '••••••••  (saved — leave blank to keep)' : '(not set)';
+                        } else {
+                            input.value = val || '';
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error('Load settings error:', e);
+            }
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsOverlay').style.display = 'none';
+        }
+
+        async function saveSettings() {
+            const status = document.getElementById('settingsStatus');
+            const keys = ['TENANT_ID','CLIENT_ID','CLIENT_SECRET','SENTINEL_WORKSPACE_ID','SENTINEL_WORKSPACE_NAME',
+                          'VIRUSTOTAL_API_KEY','REFRESH_INTERVAL_MINUTES'];
+            const payload = {};
+            keys.forEach(k => {
+                const input = document.getElementById('cfg_' + k);
+                if (input) {
+                    const val = input.value.trim();
+                    // Skip blank password fields (keep existing)
+                    if (input.type === 'password' && val === '') return;
+                    if (val !== '') payload[k] = val;
+                }
+            });
+            try {
+                status.className = 'settings-status';
+                status.textContent = '';
+                const res = await fetch('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    status.className = 'settings-status success';
+                    status.textContent = '✅ Settings saved. Changes take effect on next data refresh.';
+                } else {
+                    status.className = 'settings-status error';
+                    status.textContent = '❌ ' + (data.error || 'Failed to save settings.');
+                }
+            } catch (e) {
+                status.className = 'settings-status error';
+                status.textContent = '❌ Network error saving settings.';
+            }
+        }
+
+        async function testConnection() {
+            const status = document.getElementById('settingsStatus');
+            status.className = 'settings-status';
+            status.textContent = '🔄 Testing connection…';
+            status.style.display = 'block';
+            try {
+                const res = await fetch('/api/settings/test-connection', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    status.className = 'settings-status success';
+                    status.textContent = '✅ ' + (data.message || 'Connection successful!');
+                } else {
+                    status.className = 'settings-status error';
+                    status.textContent = '❌ ' + (data.message || 'Connection failed.');
+                }
+            } catch (e) {
+                status.className = 'settings-status error';
+                status.textContent = '❌ Network error during connection test.';
+            }
+        }
+
+        async function triggerRefreshNow() {
+            const status = document.getElementById('settingsStatus');
+            status.className = 'settings-status';
+            status.textContent = '🔄 Triggering data refresh…';
+            status.style.display = 'block';
+            try {
+                const res = await fetch('/api/refresh', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    status.className = 'settings-status success';
+                    status.textContent = '✅ ' + (data.message || 'Refresh triggered.');
+                    // Also refresh the dashboard view
+                    setTimeout(() => refreshData(), 2000);
+                } else {
+                    status.className = 'settings-status error';
+                    status.textContent = '❌ ' + (data.error || 'Refresh failed.');
+                }
+            } catch (e) {
+                status.className = 'settings-status error';
+                status.textContent = '❌ Network error triggering refresh.';
+            }
+        }
+
+        // ── Data source badge ──
+        function updateSourceBadge(source) {
+            const badge = document.getElementById('sourceBadge');
+            const label = document.getElementById('dataSourceLabel');
+            if (!source) { badge.style.display = 'none'; return; }
+            badge.style.display = 'inline-block';
+            if (source === 'microsoft_graph_api' || source === 'graph') {
+                badge.textContent = '● GRAPH';
+                badge.className = 'source-badge source-live';
+                if (label) label.textContent = 'Microsoft Graph Security API (Live)';
+            } else if (source === 'sentinel_kql' || source === 'sentinel') {
+                badge.textContent = '● SENTINEL';
+                badge.className = 'source-badge source-sentinel';
+                if (label) label.textContent = 'Microsoft Sentinel Log Analytics (Live)';
+            } else {
+                badge.textContent = '● DEMO';
+                badge.className = 'source-badge source-demo';
+                if (label) label.textContent = 'Demo / Generated Data';
+            }
+        }
+
+        // Start auto-refresh on page load
         function startAutoRefresh(intervalMinutes = 60) {
             // Clear existing interval if any
             if (autoRefreshInterval) {
@@ -459,6 +841,10 @@
                 console.log('📊 Fetching data from:', url);
                 
                 const response = await fetch(url);
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return null;
+                }
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 return await response.json();
             } catch (error) {
@@ -470,6 +856,11 @@
 
         async function initializeDashboard() {
             console.log('🚀 Loading SOC Dashboard...');
+            
+            // Check auth first — redirects to /login if not authenticated
+            const authed = await checkAuth();
+            if (!authed) return;
+            
             const data = await fetchDashboardData(currentFilters);
             
             if (data) {
@@ -477,6 +868,11 @@
                 updateLastRefreshTime();
                 document.getElementById('loadingMessage').style.display = 'none';
                 document.getElementById('dashboardContent').style.display = 'block';
+                
+                // Use server-provided refresh interval
+                const interval = parseInt(data.refreshInterval) || 60;
+                startAutoRefresh(interval);
+                console.log(`⏰ Auto-refresh: every ${interval} minutes (from server config)`);
             }
         }
 
@@ -566,6 +962,9 @@
             document.getElementById('activeIncidents').textContent = data.metrics?.active || 0;
             document.getElementById('resolvedIncidents').textContent = data.metrics?.resolved || 0;
             document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+            
+            // Update data source badge
+            updateSourceBadge(data.incidentSource);
             
             // Calculate MTTD and MTTR from real incident data
             const incidents = data.incidents || [];
@@ -765,6 +1164,12 @@
         function renderIncidentsTable() {
             const tbody = document.getElementById('incidentsTableBody');
             let filtered = allIncidents;
+
+            // Hide redirected if checkbox is checked
+            const hideRedirected = document.getElementById('hideRedirected');
+            if (hideRedirected && hideRedirected.checked) {
+                filtered = filtered.filter(inc => inc.status.toLowerCase() !== 'redirected');
+            }
             
             // Apply threat type filter first
             if (window.threatTypeFilter && window.threatTypeFilter.ids) {
@@ -800,7 +1205,10 @@
                         ${mitreCount > 0 ? `<br><small style="color: #e74c3c;">⚔️ ${mitreCount} MITRE techniques</small>` : ''}
                     </td>
                     <td><span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span></td>
-                    <td><span class="status-badge status-${inc.status.toLowerCase()}">${inc.status}</span></td>
+                    <td>
+                        <span class="status-badge status-${inc.status.toLowerCase()}">${inc.status}</span>
+                        ${inc.status.toLowerCase() === 'redirected' && inc.redirectIncidentId ? `<br><small style="color:#7b1fa2;">→ #${inc.redirectIncidentId}</small>` : ''}
+                    </td>
                     <td>${inc.assignedTo || inc.owner || 'Unassigned'}</td>
                     <td>${new Date(inc.createdTime || inc.created).toLocaleString()}</td>
                 </tr>
@@ -1166,6 +1574,15 @@
                     <span class="status-badge status-${incident.status.toLowerCase()}">${incident.status}</span>
                 </div>
                 
+                ${incident.status.toLowerCase() === 'redirected' ? `
+                <div style="background:#f3e5f5;border:1px solid #ce93d8;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+                    <strong>↪️ Redirected</strong> — This incident was merged into 
+                    ${incident.redirectIncidentId
+                        ? `<a href="https://security.microsoft.com/incidents/${incident.redirectIncidentId}" target="_blank" style="color:#7b1fa2;font-weight:600;">#${incident.redirectIncidentId}</a>`
+                        : 'another incident'}
+                    . Its alerts now belong to the target incident.
+                </div>` : ''}
+
                 <div class="detail-section">
                     <h3>📋 Overview</h3>
                     <p><strong>Incident ID:</strong> ${incident.id}</p>
@@ -1190,8 +1607,8 @@
                 </div>
                 
                 <div style="margin-top: 30px; display: flex; gap: 10px;">
-                    <button class="refresh-btn" onclick="assignToMe('${incident.id}')">📌 Assign to Me</button>
-                    <button class="refresh-btn" style="background: #f44336;" onclick="escalateIncident('${incident.id}')">⚠️ Escalate</button>
+                    <button id="btnAssign" class="refresh-btn" onclick="assignToMe('${incident.id}')">📌 Assign to Me</button>
+                    <button id="btnEscalate" class="refresh-btn" style="background: #f44336;" onclick="escalateIncident('${incident.id}')">⚠️ Escalate</button>
                     ${incident.webUrl ? `<button class="refresh-btn" style="background: #2980b9;" onclick="window.open('${incident.webUrl}', '_blank')">🔗 Open in Portal</button>` : ''}
                     <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
                 </div>
@@ -2594,15 +3011,77 @@
             document.getElementById('incidentModal').style.display = 'none';
         }
 
-        function assignToMe(incidentId) {
-            alert(`✅ Incident ${incidentId} has been assigned to you.\n\nYou will receive notifications about updates.`);
-            closeModal();
+        async function assignToMe(incidentId) {
+            const btn = document.getElementById('btnAssign');
+            if (!btn) return;
+            btn.disabled = true;
+            btn.textContent = '⏳ Assigning…';
+            try {
+                const resp = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/assign`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    btn.textContent = '✅ Assigned';
+                    btn.style.background = '#27ae60';
+                    // Update the modal display
+                    const ownerEl = document.querySelector('#incidentModalContent .detail-section p strong');
+                    const allPs = document.querySelectorAll('#incidentModalContent .detail-section p');
+                    allPs.forEach(p => {
+                        if (p.innerHTML.includes('Assigned To:')) {
+                            p.innerHTML = `<strong>Assigned To:</strong> ${data.assignedTo}`;
+                        }
+                    });
+                    // Update allIncidents array so table reflects the change
+                    const inc = allIncidents.find(i => String(i.id) === String(incidentId));
+                    if (inc) { inc.assignedTo = data.assignedTo; inc.owner = data.assignedTo; }
+                    renderIncidentsTable();
+                } else {
+                    alert(data.error || 'Failed to assign incident');
+                    btn.textContent = '📌 Assign to Me';
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                alert('Network error — could not assign incident');
+                btn.textContent = '📌 Assign to Me';
+                btn.disabled = false;
+            }
         }
 
-        function escalateIncident(incidentId) {
-            if (confirm(`⚠️ Escalate incident ${incidentId} to CISO and incident response team?`)) {
-                alert(`✅ Incident ${incidentId} has been escalated.\n\nCISO and IR team have been notified.`);
-                closeModal();
+        async function escalateIncident(incidentId) {
+            const reason = prompt('Escalation reason (optional):');
+            if (reason === null) return;  // cancelled
+            const btn = document.getElementById('btnEscalate');
+            if (!btn) return;
+            btn.disabled = true;
+            btn.textContent = '⏳ Escalating…';
+            try {
+                const resp = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/escalate`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({reason: reason || 'Manual escalation'})
+                });
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    btn.textContent = '✅ Escalated';
+                    btn.style.background = '#e67e22';
+                    // Update severity in modal
+                    const badges = document.querySelectorAll('#incidentModalContent .severity-badge');
+                    badges.forEach(b => { b.className = 'severity-badge severity-high'; b.textContent = 'High'; });
+                    // Update allIncidents array so table reflects the change
+                    const inc = allIncidents.find(i => String(i.id) === String(incidentId));
+                    if (inc) inc.severity = 'High';
+                    renderIncidentsTable();
+                } else {
+                    alert(data.error || 'Failed to escalate incident');
+                    btn.textContent = '⚠️ Escalate';
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                alert('Network error — could not escalate incident');
+                btn.textContent = '⚠️ Escalate';
+                btn.disabled = false;
             }
         }
 
@@ -2764,13 +3243,11 @@
         // Initialize
         window.addEventListener('load', () => {
             initializeDashboard();
-            startAutoRefresh(60); // Start hourly auto-refresh
         });
         
         
         console.log('📊 SOC Dashboard initialized');
-        console.log('📡 Workspace: SDLWS (dec4f8ae-de22-4dff-b20c-0b3ac18c704f)');
-        console.log('⏰ Auto-refresh: Enabled (every 60 minutes)');
+        console.log('📡 Auto-refresh interval loaded from server configuration');
     </script>
 </body>
 </html>

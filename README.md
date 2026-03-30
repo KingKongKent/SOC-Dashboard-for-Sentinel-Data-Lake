@@ -1,354 +1,336 @@
-# SOC Dashboard - Live Security Operations Center
+# SOC Dashboard for Microsoft Defender XDR
 
-Automated security dashboard with **Microsoft Defender**, **Microsoft Sentinel**, and **Threat Intelligence** integration. Features SQLite database for historical data, timeline filtering, and automated hourly refresh.
+Automated Security Operations Center dashboard integrating **Microsoft Defender XDR**, **Microsoft Sentinel**, and **Threat Intelligence** feeds. Entra ID authentication, encrypted config management, SQLite persistence, and real-time incident actions (assign, escalate with email notification).
 
-> **🌟 Built to inspire.** This dashboard was created using **VIBE coding** (AI-assisted development) to demonstrate what's possible when building security operations dashboards. Use it as inspiration and a starting point for creating your own custom SOC dashboards tailored to your organization's needs.
->
-> **⚠️ Important Notes:**
-> - **Not tested in large installations**: This dashboard is designed for demonstration and learning purposes. It has not been tested or validated in large enterprise production environments with high incident volumes.
-> - **Requires Microsoft Sentinel Data Lake**: This project requires an active **Microsoft Sentinel workspace** with the Data Lake feature enabled to query security data via KQL.
-> - **Educational Framework**: Consider this a reference implementation that showcases integration patterns, data visualization techniques, and security operations workflows.
+> **Built to inspire.** Created using AI-assisted (VIBE) coding to demonstrate SOC dashboard patterns. Use as a reference implementation — not validated for large-scale production.
 
-## 🚀 Quick Start
+## Quick Start (Local Development)
 
-### 1. Install Dependencies
 ```bash
+# 1. Install dependencies
 pip install -r requirements.txt
-```
 
-### 2. Configure Credentials
-Create a `.env` file with your Azure credentials:
-```env
-# Microsoft Entra ID Application
-CLIENT_ID=your-app-id-here
-CLIENT_SECRET=your-client-secret-here
-TENANT_ID=your-tenant-id-here
+# 2. Configure credentials (copy template, fill in values)
+cp .env.example .env
+# Edit .env with your Azure credentials — NEVER commit .env
 
-# Microsoft Sentinel Workspace
-SENTINEL_WORKSPACE_ID=your-workspace-id-here
-SENTINEL_WORKSPACE_NAME=your-workspace-name
+# 3. Verify secrets are excluded
+git check-ignore .env          # should output: .env
 
-# Optional: External Threat Intel API Keys
-VIRUSTOTAL_API_KEY=your-virustotal-key
-TALOS_API_KEY=your-talos-key
-ABUSEIPDB_API_KEY=your-abuseipdb-key
-```
-
-**⚠️ IMPORTANT**: Never commit the `.env` file to version control. It's already in `.gitignore`.
-
-### 3. Verify Security
-Before committing code, verify no secrets are exposed:
-```bash
-# Check that .env is gitignored
-git check-ignore .env
-# Should output: .env
-
-# Verify no credentials in tracked files
-git grep -E "(CLIENT_ID|CLIENT_SECRET|TENANT_ID|API_KEY)" -- '*.py' '*.md'
-# Should return no hardcoded credentials
-```
-
-### 3. Verify Security
-Before committing code, verify no secrets are exposed:
-```bash
-# Check that .env is gitignored
-git check-ignore .env
-# Should output: .env
-
-# Verify no credentials in tracked files
-git grep -E "(CLIENT_ID|CLIENT_SECRET|TENANT_ID|API_KEY)" -- '*.py' '*.md'
-# Should return no hardcoded credentials
-```
-
-### 4. Initial Setup
-```bash
-# Fetch live data and populate database
+# 4. Initialise database and fetch data
 python fetch_live_data.py
-```
 
-### 5. Start Dashboard Server
-```bash
+# 5. Start the dashboard
 python dashboard_backend.py
+
+# 6. Open http://localhost:5000
 ```
 
-### 6. Enable Automated Refresh (Optional)
+### Optional: Automated Refresh
 ```bash
-# Start hourly data refresh service
-python hourly_refresh.py
+python hourly_refresh.py          # scheduler (every hour)
+# or via Windows Task Scheduler:
+powershell -File scripts/setup_task_scheduler.ps1
 ```
 
-### 7. Open Dashboard
-Navigate to: **http://localhost:5000**
+---
 
-## ✨ Features
+## Production Deployment (Ubuntu LXC)
 
-### Live Security Metrics
-- **🎯 Secure Score**: 63.3% with category breakdown (Identity, Data, Device, Apps)
-- **🔴 High Severity Incidents**: Current count from Microsoft Defender
-- **📊 Total Incidents**: All incidents with timeline filtering
-- **⚡ Active Incidents**: Incidents requiring immediate attention
-- **✅ Resolved Incidents**: Resolution rate tracking
-- **📈 Alert Volume Trends**: Historical analysis with filtering
-- **🛡️ Threat Intelligence**: Multi-source threat indicators
+### Prerequisites
+- Ubuntu 24.04 LXC container
+- Python 3.10+
+- Microsoft Entra ID app registration with required permissions (see [Entra ID Setup](#entra-id-app-registration))
+- DNS record pointing to your reverse proxy (not directly to the LXC)
 
-### Timeline Filtering
-- **7 Days**: Last week's incidents
-- **30 Days**: Default view (last month)
-- **60 Days**: Last 2 months
-- **90 Days**: Last quarter
-- **All Time**: Complete historical data
+### Automated Deployment
 
-### Database Features
-- **SQLite Storage**: Persistent incident data with indexed queries
-- **Append-Only Operations**: New data added without regeneration
-- **Historical Analysis**: Query incidents across any date range
-- **Fast Filtering**: Indexed by date, severity, status
-- **Entity Tracking**: 191+ extracted entities (IPs, users, files, devices)
+```bash
+# 1. Copy files to the LXC
+scp *.py *.html requirements.txt .env.example root@<LXC_IP>:/opt/soc-dashboard/
+scp -r scripts static root@<LXC_IP>:/opt/soc-dashboard/
 
-### Enriched Incident Data
-- ✅ **Entities Extraction**: Users, emails, IPs, files automatically identified
-- ✅ **MITRE ATT&CK Mapping**: Techniques (T1566, T1204) linked to incidents
-- ✅ **Actionable Recommendations**: Specific guidance for each incident
-- ✅ **Evidence Verdicts**: Malicious, suspicious, or benign classification
-- ✅ **Portal Integration**: Direct links to Microsoft 365 Defender portal
-- ✅ **Alert Timeline**: Chronological view of related alerts
+# 2. Run the deployment script
+ssh root@<LXC_IP> 'bash /opt/soc-dashboard/scripts/deploy_lxc.sh'
 
-### Calculated Metrics (Real Data)
-- **MTTD (Mean Time to Detect)**: Calculated from alert-to-incident timestamps
-- **MTTR (Mean Time to Resolve)**: Average resolution time from resolved incidents
-- **Alert Noise Ratio**: False positive rate from incident classifications
+# 3. Configure nginx domain and TLS
+ssh root@<LXC_IP>
+sed -i 's/YOUR_DOMAIN/your-actual-domain.com/g' /etc/nginx/sites-available/soc-dashboard
+nginx -t && systemctl reload nginx
+certbot --nginx -d your-actual-domain.com
 
-### Automated Refresh
-- **Hourly Backend Refresh**: Fetches new incidents automatically
-- **Frontend Auto-Refresh**: Dashboard updates every 60 minutes
-- **Append-Only Updates**: Only new incidents added (efficient)
-- **Windows Task Scheduler**: Optional scheduled execution
-
-### Interactive Dashboard
-- ✅ Click KPI cards to filter incidents by severity or status
-- ✅ Incident details modal with entities, MITRE techniques, and recommendations
-- ✅ Real recommendations from Microsoft Graph API
-- ✅ Multi-source threat intelligence dashboard
-- ✅ Alert volume, severity, and status visualizations
-
-### Data Architecture
-- **Database-Backed Storage**: Fast dashboard loads from SQLite
-- **Scheduled Data Refresh**: Run `fetch_live_data.py` or `hourly_refresh.py` to update
-- **Flexible Scheduling**: Manual, hourly, or custom refresh intervals
-
-## 📊 Data Sources
-
-| Feature | Source | Status |
-|---------|--------|--------|
-| Secure Score | Microsoft Graph API | ✅ Real (63.3%) |
-| Category Scores | Microsoft Graph API | ✅ Real |
-| Recommendations | Graph API (secureScoreControlProfiles) | ✅ Real (5 items) |
-| Incidents | Microsoft Defender (MCP) | ✅ Real (100 items) |
-| Alerts | Microsoft Defender (MCP) | ✅ Real (316 items) |
-| Entities | Extracted from incidents | ✅ Real (191 items) |
-| Alert Volume | Calculated from real alerts | ✅ Real (7-90 days) |
-| MTTD | Calculated from timestamps | ✅ Real |
-| MTTR | Calculated from resolved incidents | ✅ Real |
-| Alert Noise Ratio | Calculated from classifications | ✅ Real |
-| Threat Intel (Microsoft) | Sentinel TI Indicators | ✅ Demo (1,247 IOCs) |
-| Threat Intel (VirusTotal) | VirusTotal API | 📊 Demo (pending API key) |
-| Threat Intel (Talos) | Cisco Talos API | 📊 Demo (pending API key) |
-| Threat Intel (AbuseIPDB) | AbuseIPDB API | 📊 Demo (pending API key) |
-
-## 📁 File Structure
-
-```
-Demo1/
-├── soc-dashboard-live.html          # Frontend dashboard UI
-├── dashboard_backend.py              # Flask API server (SQLite mode)
-├── fetch_live_data.py                # Data collection script
-├── database.py                       # SQLite database operations
-├── append_data.py                    # Append new data to DB
-├── hourly_refresh.py                # Automated hourly refresh
-├── setup_task_scheduler.ps1         # Windows Task Scheduler setup
-├── start_hourly_refresh.bat         # Windows service launcher
-├── soc_dashboard.db                 # SQLite database (100+ incidents)
-├── requirements.txt                  # Python dependencies
-├── .env                             # Azure credentials (Git-ignored)
-├── .gitignore                       # Prevents credential commits
-├── LICENSE                          # MIT License
-└── README.md                        # This file
+# 4. Open https://your-actual-domain.com → the Setup Wizard will launch automatically
 ```
 
-## 🗄️ Database Architecture
+The deployment script (`scripts/deploy_lxc.sh`) will:
+1. Install system packages (`python3`, `venv`, `nginx`, `certbot`)
+2. Create a `socdash` service user (no login shell)
+3. Set up `/opt/soc-dashboard` (app) and `/var/lib/soc-dashboard` (DB/data)
+4. Create a Python venv with all dependencies + gunicorn
+5. Initialize the SQLite database schema
+6. Install systemd units (dashboard service + hourly refresh timer)
+7. Configure and enable nginx reverse proxy
 
-### SQLite Tables
-- **incidents**: Primary incident data (100 rows)
-  - Indexed: created_time, severity, status
-  - Fields: id, title, severity, status, created_time, assigned_to, entities, etc.
+### First-Run Setup Wizard
 
-- **alerts**: Alert data linked to incidents (316 rows)
-  - Indexed: incident_id, timestamp
-  - Fields: id, incident_id, title, severity, category, timestamp, etc.
+On a fresh deployment, the dashboard automatically detects that Entra ID credentials are not configured and redirects all traffic to `/setup` — a built-in web-based setup wizard.
 
-- **entities**: Extracted entities from incidents (191 rows)
-  - Indexed: entity_type, verdict
-  - Fields: incident_id, entity_type, entity_name, verdict
+The setup wizard lets you:
+- Enter **Tenant ID**, **Client ID**, and **Client Secret** from your Entra app registration
+- **Test the connection** against Azure AD before saving
+- Configure **Admin Users** (email addresses) and **Escalation Email**
+- Set the **Redirect URI** (auto-detected from your browser URL)
 
-- **threat_intel_snapshots**: Threat intelligence data
-  - Timestamped snapshots of IOCs, malicious IPs, detections
+Credentials are saved to the encrypted config database — no need to SSH in and edit `.env`. Once saved, the setup page locks itself and redirects to the normal login flow.
 
-- **metrics_snapshots**: Historical metrics
-  - Daily/hourly snapshots for trend analysis
+> **No `.env` editing required for first-time setup.** The `.env` file retains placeholder values; the setup wizard writes real credentials to the encrypted SQLite config, which takes precedence.
 
-## 🔧 Configuration
+### What Gets Created
 
-### Microsoft Sentinel Workspace
-Configure your workspace credentials in `.env` file:
+| Component | Path | Purpose |
+|-----------|------|---------|
+| App files | `/opt/soc-dashboard/` | Read-only application code |
+| Database | `/var/lib/soc-dashboard/soc_dashboard.db` | SQLite database (writable) |
+| Encryption key | `/var/lib/soc-dashboard/.encryption_key` | Fernet key for config secrets |
+| Flask sessions | `/var/lib/soc-dashboard/flask_sessions/` | Session file storage |
+| Credentials | `/opt/soc-dashboard/.env` | Environment vars (chmod 600) |
+| Service | `dashboard.service` | gunicorn on 127.0.0.1:5000 (2 workers) |
+| Timer | `hourly-refresh.timer` | Runs `append_data.py` every 1 hour |
+| Nginx | `/etc/nginx/sites-available/soc-dashboard` | TLS reverse proxy |
+
+### Critical Deployment Notes
+
+**Database path:** The `DB_PATH` environment variable must be set in `.env` to `/var/lib/soc-dashboard/soc_dashboard.db`. If the systemd `WorkingDirectory` is wrong and `DB_PATH` is unset, a new empty DB gets created in the wrong location.
+
+**Encryption key:** `config_manager.py` auto-generates a Fernet key on first run. **Never delete `.encryption_key`** — all encrypted settings in the DB become unreadable.
+
+**`.env` permissions:** Must be `chmod 600`, owned by `socdash`. The deployment script sets this, but manual edits can reset permissions.
+
+**Gunicorn (not Flask dev server):** Production must use gunicorn via `dashboard.service`. Flask's dev server is single-threaded and unsuitable.
+
+**SQLite concurrency:** With multiple gunicorn workers writing simultaneously, you may see "database is locked" errors. Enable WAL mode if needed: `PRAGMA journal_mode=WAL`.
+
+### TLS Certificate
+
+```bash
+# On the LXC, after DNS is configured:
+certbot certonly --webroot -w /var/www/html -d your-domain.com
+# Use RSA key type for maximum browser compatibility:
+certbot certonly --key-type rsa --preferred-chain 'ISRG Root X1' -d your-domain.com
+```
+
+> ECDSA certs (Let's Encrypt E7, ISRG Root X2) may show "Not Secure" on some Windows machines. RSA certs (R12, ISRG Root X1) are universally trusted.
+
+### Reverse Proxy Configuration
+
+If traffic routes through an upstream proxy (SNI/stream routing), uncomment the proxy protocol lines in `scripts/nginx_site.conf`:
+
+```nginx
+listen 443 ssl http2 proxy_protocol;
+set_real_ip_from <PROXY_IP>;
+real_ip_header proxy_protocol;
+```
+
+**DNS must point to the proxy, not directly to the LXC.** Direct connections bypass the proxy protocol preamble and cause `ERR_CONNECTION_RESET`.
+
+### Updating After Code Changes
+
+```bash
+# SCP changed files and restart
+scp <changed_files> root@<LXC_IP>:/opt/soc-dashboard/
+ssh root@<LXC_IP> 'systemctl restart dashboard'
+```
+
+---
+
+## Entra ID App Registration
+
+### Required Application Permissions
+
+| API | Permission | Type | Purpose |
+|-----|-----------|------|---------|
+| Microsoft Graph | `SecurityIncident.Read.All` | Application | Fetch incidents |
+| Microsoft Graph | `SecurityIncident.ReadWrite.All` | Application | Assign/escalate incidents |
+| Microsoft Graph | `SecurityEvents.Read.All` | Application | Read security events / Secure Score |
+| Microsoft Graph | `User.Read.All` | Application | User lookup |
+| Microsoft Graph | `Mail.Send` | Application | Escalation email notifications |
+| Microsoft Graph | `ThreatIntelligence.Read.All` | Application | MDTI articles *(optional — requires Defender TI license)* |
+
+After adding permissions, **grant admin consent** — requires Global Administrator or Privileged Role Administrator.
+
+### Redirect URI
+
+Register in Entra: `https://<your-domain>/auth/callback`
+
+Missing this causes `AADSTS50011` errors during login.
+
+### Auth Flow
+
+- **User login:** MSAL authorization code flow (interactive browser login)
+- **API calls to Graph:** Client credentials flow (app-only token)
+- **Admin detection:** `ADMIN_USERS` env var (comma-separated emails), not directory roles
+- **Session:** Filesystem-based, 8-hour lifetime, `HttpOnly` + `SameSite=Lax` + `Secure` cookies
+
+---
+
+## Configuration
+
+### `.env` Variables
+
 ```env
-SENTINEL_WORKSPACE_ID=your-workspace-id-here
+# Required — Entra ID App Registration
+CLIENT_ID=your-app-client-id
+CLIENT_SECRET=your-client-secret
+TENANT_ID=your-tenant-id
+
+# Required — Auth
+SECRET_KEY=<random-hex-string>
+REDIRECT_URI=https://your-domain.com/auth/callback
+CORS_ORIGINS=https://your-domain.com
+ADMIN_USERS=admin@yourdomain.com
+
+# Optional — Sentinel
+SENTINEL_WORKSPACE_ID=your-workspace-id
 SENTINEL_WORKSPACE_NAME=your-workspace-name
+
+# Optional — Threat Intel API Keys
+VIRUSTOTAL_API_KEY=
+ABUSEIPDB_API_KEY=
+
+# Optional — Escalation
+ESCALATION_EMAIL=soc-team@yourdomain.com
+
+# Optional — Operational
+REFRESH_INTERVAL_MINUTES=60
+DB_PATH=/var/lib/soc-dashboard/soc_dashboard.db
+CONFIG_KEY_PATH=/var/lib/soc-dashboard/.encryption_key
 ```
 
-### Microsoft Entra ID Application
-Configure your Entra ID app credentials in `.env` file:
-```env
-CLIENT_ID=your-app-id-here
-TENANT_ID=your-tenant-id-here
-CLIENT_SECRET=your-client-secret-here
+### Config Management
+
+Settings can be managed in two ways:
+1. **`.env` file** — read on startup
+2. **Admin Settings UI** — stored encrypted in SQLite, takes precedence over `.env`
+
+Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database. The encryption key at `CONFIG_KEY_PATH` is generated on first run — **do not delete it**.
+
+---
+
+## API Endpoints
+
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/setup` | GET | — | First-run setup wizard (redirects to `/login` once configured) |
+| `/api/setup` | POST | — | Save initial config (locked after setup completes) |
+| `/api/setup/test-connection` | POST | — | Test Graph API credentials before saving |
+| `/login` | GET | — | Initiates Entra ID OAuth2 flow |
+| `/auth/callback` | GET | — | Entra redirect target (exchanges code for token) |
+| `/logout` | GET | — | Clears session, redirects to `/login` |
+| `/` | GET | `@require_login` | Serves the dashboard SPA |
+| `/api/me` | GET | `@require_login` | Returns current user info |
+| `/api/dashboard-data` | GET | `@require_login` | Incidents, alerts, metrics, secure score (supports `?days=`, `?severity=`, `?status=` filters) |
+| `/api/database-stats` | GET | `@require_login` | Row counts and date ranges |
+| `/api/incidents/<id>/assign` | POST | `@require_login` | Assigns incident in Defender XDR + local DB |
+| `/api/incidents/<id>/escalate` | POST | `@require_login` | Bumps severity to High, adds tag + comment, sends email |
+| `/api/settings` | GET | `@require_admin` | Returns all config (secrets masked) |
+| `/api/settings` | PUT | `@require_admin` | Updates config values |
+| `/api/settings/test-connection` | POST | `@require_admin` | Tests Graph API connectivity |
+| `/api/refresh` | POST | `@require_admin` | Triggers immediate data refresh |
+
+---
+
+## Features
+
+| Area | Detail |
+|------|--------|
+| **Authentication** | Entra ID OAuth2 with MSAL, admin role via email list |
+| **Secure Score** | Live from Microsoft Graph API with category breakdown |
+| **Incidents** | Timeline filtering (7d–90d), severity & status filters, hide-redirected toggle |
+| **Incident Actions** | Assign to Me, Escalate (severity bump + email notification) — updates Defender XDR via Graph API |
+| **Alerts** | Linked to incidents, product and detection source breakdown |
+| **Threat Intel** | IOC extraction from incidents, VirusTotal, AbuseIPDB, MDTI articles |
+| **Redirected Incidents** | Detected and labeled with target incident link; hidden by default to reduce noise |
+| **Admin Settings** | Web UI for managing API keys, refresh interval, escalation email |
+| **Encrypted Config** | Secrets stored with Fernet encryption in SQLite |
+| **Auto-Refresh** | systemd timer (hourly) + configurable interval via settings |
+
+## Project Structure
+
+```
+SOC-Dashboard/
+├── dashboard_backend.py       # Flask API server + auth routes + security headers
+├── database.py                # SQLite schema, CRUD, update helpers
+├── fetch_live_data.py         # Graph API data fetchers + write helpers (assign, escalate, email)
+├── auth.py                    # Entra ID MSAL login flow + @require_login / @require_admin
+├── config_manager.py          # Encrypted config CRUD (DB → env fallback)
+├── append_data.py             # Incremental data append logic
+├── hourly_refresh.py          # Scheduler with timeout wrapper
+├── soc-dashboard-live.html    # Single-page dashboard frontend (Chart.js, vanilla JS)
+├── setup.html                 # First-run setup wizard (Entra ID credentials)
+├── static/
+│   └── favicon.svg            # Shield favicon
+├── requirements.txt           # Python dependencies
+├── .env.example               # Credential template (safe to commit)
+├── scripts/
+│   ├── deploy_lxc.sh          # Automated LXC deployment
+│   ├── setup_systemd.sh       # systemd service + timer creation
+│   ├── nginx_site.conf        # nginx reverse proxy template (with proxy_protocol support)
+│   ├── pre_commit_check.py    # Pre-commit secret scanner
+│   ├── setup_task_scheduler.ps1 # Windows Task Scheduler setup
+│   └── backfill_redirect.py   # One-off: backfill redirectIncidentId data
+├── docs/
+│   ├── ARCHITECTURE.md        # System architecture & data flow
+│   ├── INVENTORY.md           # File-by-file inventory
+│   └── SECURITY_FIXES.md      # Tracked vulnerability patches
+└── .github/
+    └── copilot-instructions.md # Copilot coding conventions & pitfalls
 ```
 
-**Required API Permissions for Application Registration:**
+## Security
 
-The following Application (not Delegated) permissions must be granted in Azure Portal:
+- All credentials via `.env` + `python-dotenv` — **never hardcoded**
+- Secrets encrypted at rest with Fernet in SQLite config table
+- `.gitignore` blocks `.env`, `*.key`, `*.pem`, `*secret*`, `*.db`
+- Pre-commit script scans for leaked secrets (`scripts/pre_commit_check.py`)
+- CSP headers restrict script/style/font sources to `https://cdn.jsdelivr.net`
+- All routes auth-protected (`@require_login` for users, `@require_admin` for settings)
+- SQL queries use parameterized `?` placeholders — no f-strings in SQL
+- `update_incident_field()` uses column whitelist — no arbitrary column updates
+- See [docs/SECURITY_FIXES.md](docs/SECURITY_FIXES.md) for tracked patches
 
-#### Microsoft Graph API Permissions
-- `SecurityEvents.Read.All` - Read security events
-- `SecurityActions.Read.All` - Read security actions
-- `SecurityIncident.Read.All` - Read security incidents
-- `SecurityAlert.Read.All` - Read security alerts
-- `SecurityAnalyzedMessage.Read.All` - Read analyzed messages
+## Technologies
 
-#### Microsoft Defender Permissions
-- `Incident.Read.All` - Read all incidents
-- `Alert.Read.All` - Read all alerts
-- `AdvancedHunting.Read.All` - Run advanced hunting queries
+- **Frontend:** HTML5, CSS3, JavaScript, Chart.js 4.4.0
+- **Backend:** Python 3.10+, Flask 3.1, Flask-CORS, Flask-Session
+- **Auth:** MSAL 1.31 (Entra ID OAuth2 authorization code flow)
+- **Database:** SQLite3 with JSON data blobs
+- **Encryption:** cryptography (Fernet)
+- **Production server:** gunicorn (2 workers, systemd managed)
+- **Reverse proxy:** nginx with TLS (Let's Encrypt)
+- **Scheduling:** systemd timer (production) / schedule library (development)
+- **APIs:** Microsoft Graph Security, Defender XDR, VirusTotal, AbuseIPDB
 
-#### Azure Monitor / Log Analytics (for Sentinel)
-- `Data.Read` - Read Log Analytics workspace data
-
-**Setup Steps:**
-1. Go to Azure Portal → Entra ID → App Registrations
-2. Select your application
-3. Navigate to "API Permissions"
-4. Click "Add a permission"
-5. Select the appropriate API (Microsoft Graph, Microsoft Threat Protection, etc.)
-6. Choose "Application permissions"
-7. Select all required permissions listed above
-8. Click "Grant admin consent" (requires Global Administrator or Privileged Role Administrator)
-
-**⚠️ Important:** After adding permissions, you **must** grant admin consent for your organization, or the API calls will fail with 403 Forbidden errors.
-
-### External Threat Intelligence (Optional)
-To enable real threat intelligence from external sources:
-
-1. **VirusTotal**: Get API key from https://www.virustotal.com/
-2. **AbuseIPDB**: Get API key from https://www.abuseipdb.com/
-3. **Cisco Talos**: May require enterprise access
-
-Add keys to `.env` file and run `python fetch_live_data.py` to fetch real data.
-
-## 🔄 Data Refresh Workflow
-
-### Option 1: Manual Refresh
-```bash
-python fetch_live_data.py     # Fetch new data
-python append_data.py          # Append to database (optional)
-```
-
-### Option 2: Automated Hourly Refresh
-```bash
-python hourly_refresh.py
-# Runs continuously, refreshing data every hour
-# Press Ctrl+C to stop
-```
-
-### Option 3: Frontend Auto-Refresh
-The dashboard automatically refreshes every 60 minutes while open in browser.
-
-## 💻 Technologies
-
-- **Frontend**: HTML5, CSS3, JavaScript, Chart.js 4.4.0
-- **Backend**: Python 3.14, Flask 3.0.0, Flask-CORS 4.0.0
-- **Database**: SQLite3 (built-in)
-- **Scheduling**: schedule 1.2.0 library
-- **Data Sources**: 
-  - Microsoft Defender MCP (`mcp_triage_mcp_se_ListAlerts`, `mcp_triage_mcp_se_ListIncidents`)
-  - Microsoft Sentinel MCP (`mcp_microsoft_sen2_query_lake`)
-  - Microsoft Graph API (`/security/secureScores`, `/security/secureScoreControlProfiles`)
-- **Authentication**: Microsoft Entra ID OAuth2 (Client Credentials Flow)
-- **Threat Intel APIs**: VirusTotal, Cisco Talos, AbuseIPDB
-
-## 🎯 Interactive Features
-
-### Timeline Filtering (Button-Based)
-- **7d**: Last 7 days of incidents
-- **30d**: Last 30 days (default)
-- **60d**: Last 60 days
-- **90d**: Last 90 days
-- **All**: Complete historical data
-
-### KPI Card Filtering
-- **High Severity**: Click to filter incidents by High severity
-- **Active Incidents**: Click to show incidents needing attention
-- **Resolved Status**: Click to filter by resolved incidents
-- **All Incidents**: Click to reset all filters
-
-### Detailed Views
-- **Secure Score Card**: Click to view category breakdown (Identity, Data, Device, Apps)
-- **Incident Details**: Click any incident for full details with entities, MITRE techniques, and alert timeline
-- **Entity Investigation**: Click entities to see threat intelligence lookups
-- **MITRE ATT&CK**: Click techniques to view framework documentation
-- **Threat Intelligence**: Click IOC cards to filter incidents by threat type
-
-## 🛡️ Threat Intelligence Dashboard
-
-The dashboard displays threat indicators from multiple sources:
-
-### Current Metrics (Demo Data - Pending API Keys)
-- **Threat Indicators**: 1,247 IOCs from Microsoft Sentinel
-- **Malicious IPs**: 156 flagged IPs from AbuseIPDB
-- **VirusTotal Detections**: 28 malicious files detected
-- **Talos Threat Score**: 15/100 (lower is better)
-
-### To Enable Real External Threat Intel
-1. Add API keys to `.env` file
-2. Run `python fetch_live_data.py`
-3. Refresh dashboard to see updated metrics
-
-
-
-## 🔒 Security Best Practices
-
-- ✅ `.env` file is Git-ignored to prevent credential exposure
-- ✅ All sensitive data (IDs, secrets, tokens) stored in `.env` only
-- ✅ Never commit secrets, workspace IDs, or tenant IDs to version control
-- ✅ Use separate credentials for development and production
-- ✅ Backend runs on `localhost:5000` (development only)
-- ⚠️ For production: Use proper WSGI server (Gunicorn, uWSGI)
-- ⚠️ For production: Enable HTTPS/TLS
-- ⚠️ For production: Implement rate limiting and authentication
-- ⚠️ For production: Use Azure Key Vault for secrets management
-
-##  Future Enhancements
+## Future Enhancements
 
 - [x] SQLite database for historical data
 - [x] Timeline filtering (7/30/60/90/all days)
 - [x] Hourly automated refresh
 - [x] Real MTTD/MTTR calculations
 - [x] Entity extraction and tracking
+- [x] Entra ID authentication with admin roles
+- [x] Encrypted settings management
+- [x] Incident actions (assign, escalate with email)
+- [x] Redirected incident detection and filtering
+- [x] First-run web setup wizard (no SSH required for initial config)
 - [ ] WebSocket live streaming for instant updates
 - [ ] Multi-workspace support
 - [ ] Export incident reports to PDF/Excel
-- [ ] Email/Teams notifications for critical alerts
-- [ ] Role-based access control (RBAC)
 - [ ] Custom KQL query builder
-- [ ] Incident response workflow automation
+- [ ] Rate limiting on API endpoints
+
+## License
+
+MIT — see [LICENSE](LICENSE)
 - [ ] Advanced correlation rules
 
 ## 📝 Development

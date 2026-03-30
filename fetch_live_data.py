@@ -20,42 +20,52 @@ if sys.platform == 'win32':
 # Load environment variables
 load_dotenv()
 
-# Sentinel workspace configuration
-WORKSPACE_ID = os.getenv('SENTINEL_WORKSPACE_ID', '').strip()
-WORKSPACE_NAME = os.getenv('SENTINEL_WORKSPACE_NAME', '').strip()
 
-# Microsoft Entra ID credentials for Microsoft Graph API
-CLIENT_ID = os.getenv('CLIENT_ID', '').strip()
-CLIENT_SECRET = os.getenv('CLIENT_SECRET', '').strip()
-TENANT_ID = os.getenv('TENANT_ID', '').strip()
+def _cfg(key: str, default: str = '') -> str:
+    """Read config from DB first, then env var."""
+    try:
+        from config_manager import get_config
+        val = get_config(key)
+        if val:
+            return val
+    except Exception:
+        pass
+    return os.getenv(key, default).strip()
+
+
+# Sentinel workspace configuration
+def _workspace_id(): return _cfg('SENTINEL_WORKSPACE_ID')
+def _workspace_name(): return _cfg('SENTINEL_WORKSPACE_NAME')
 
 # Microsoft Graph API endpoints
-GRAPH_TOKEN_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token'
 GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0'
 
-# Threat Intelligence API Keys (optional)
-VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY', '').strip()
-TALOS_API_KEY = os.getenv('TALOS_API_KEY', '').strip()
-ABUSEIPDB_API_KEY = os.getenv('ABUSEIPDB_API_KEY', '').strip()
+# Data source tracking — set by fetch functions
+_last_incident_source = 'unknown'
 
-def get_graph_access_token():
+def get_graph_access_token(scope='https://graph.microsoft.com/.default'):
     """
-    Get access token for Microsoft Graph API
+    Get access token for Microsoft Graph API (or other scope).
     """
-    if not all([CLIENT_ID, CLIENT_SECRET, TENANT_ID]):
-        print("  ⚠️  Microsoft Entra ID credentials not configured in .env file")
+    client_id = _cfg('CLIENT_ID')
+    client_secret = _cfg('CLIENT_SECRET')
+    tenant_id = _cfg('TENANT_ID')
+
+    if not all([client_id, client_secret, tenant_id]):
+        print("  ⚠️  Microsoft Entra ID credentials not configured")
         return None
     
     try:
+        token_url = f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token'
         data = {
-            'client_id': CLIENT_ID,
-            'client_secret': CLIENT_SECRET,
-            'scope': 'https://graph.microsoft.com/.default',
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'scope': scope,
             'grant_type': 'client_credentials'
         }
-        response = requests.post(GRAPH_TOKEN_URL, data=data, timeout=10)
+        response = requests.post(token_url, data=data, timeout=10)
         response.raise_for_status()
-        print("  ✅ Successfully obtained Graph API token")
+        print(f"  ✅ Successfully obtained token (scope: {scope.split('/')[-1]})")
         return response.json()['access_token']
     except requests.exceptions.HTTPError as e:
         print(f"  ⚠️  HTTP Error: {e}")
@@ -65,6 +75,64 @@ def get_graph_access_token():
     except Exception as e:
         print(f"  ⚠️  Error getting token: {e}")
         return None
+
+# ── Graph write helpers (assign, escalate, email) ────────────
+
+def graph_patch_incident(incident_id: str, payload: dict) -> dict:
+    """PATCH a Graph Security incident. Returns response dict or raises."""
+    if not str(incident_id).isdigit():
+        raise ValueError('incident_id must be numeric (Graph)')
+    token = get_graph_access_token()
+    if not token:
+        raise RuntimeError('Could not obtain Graph token')
+    url = f'{GRAPH_API_BASE}/security/incidents/{incident_id}'
+    resp = requests.patch(url, json=payload,
+                          headers={'Authorization': f'Bearer {token}',
+                                   'Content-Type': 'application/json'},
+                          timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def graph_post_comment(incident_id: str, comment_text: str) -> dict:
+    """Post a comment on a Graph Security incident."""
+    if not str(incident_id).isdigit():
+        raise ValueError('incident_id must be numeric (Graph)')
+    token = get_graph_access_token()
+    if not token:
+        raise RuntimeError('Could not obtain Graph token')
+    url = f'{GRAPH_API_BASE}/security/incidents/{incident_id}/comments'
+    body = {'@odata.type': 'microsoft.graph.security.alertComment',
+            'comment': comment_text}
+    resp = requests.post(url, json=body,
+                         headers={'Authorization': f'Bearer {token}',
+                                  'Content-Type': 'application/json'},
+                         timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def graph_send_mail(sender_oid: str, subject: str, html_body: str,
+                    recipients: list[str]) -> None:
+    """Send an email via Graph /users/{oid}/sendMail. Requires Mail.Send."""
+    token = get_graph_access_token()
+    if not token:
+        raise RuntimeError('Could not obtain Graph token')
+    url = f'{GRAPH_API_BASE}/users/{sender_oid}/sendMail'
+    message = {
+        'message': {
+            'subject': subject,
+            'body': {'contentType': 'HTML', 'content': html_body},
+            'toRecipients': [{'emailAddress': {'address': r}} for r in recipients],
+        },
+        'saveToSentItems': 'false',
+    }
+    resp = requests.post(url, json=message,
+                         headers={'Authorization': f'Bearer {token}',
+                                  'Content-Type': 'application/json'},
+                         timeout=15)
+    resp.raise_for_status()
+
 
 def fetch_mdti_articles(access_token):
     """
@@ -134,193 +202,341 @@ def fetch_mdti_articles(access_token):
         print(f"  ⚠️  Error fetching MDTI articles: {e}")
         return []
 
-def fetch_defender_incidents():
+def _map_graph_incident(inc: dict) -> dict:
+    """Map a Graph Security incident to our internal schema."""
+    # Extract entities from alerts
+    entities = []
+    for alert in inc.get('alerts', []):
+        for ev in alert.get('evidence', []):
+            etype = ev.get('@odata.type', '').split('.')[-1].replace('Evidence', '')
+            ename = (ev.get('userAccount', {}).get('accountName') or
+                     ev.get('deviceDnsName') or
+                     ev.get('ipAddress') or
+                     ev.get('fileName') or
+                     ev.get('url') or
+                     ev.get('domainName') or '')
+            if ename:
+                entities.append({
+                    'type': etype or 'Unknown',
+                    'name': ename,
+                    'verdict': ev.get('verdict', 'unknown'),
+                })
+
+    return {
+        'id': str(inc.get('id', '')),
+        'title': inc.get('displayName', 'Untitled'),
+        'severity': (inc.get('severity') or 'medium').capitalize(),
+        'status': (inc.get('status') or 'active').capitalize(),
+        'createdTime': inc.get('createdDateTime', ''),
+        'lastUpdateTime': inc.get('lastUpdateDateTime', ''),
+        'classification': inc.get('classification', 'unknown') or 'unknown',
+        'determination': inc.get('determination', 'unknown') or 'unknown',
+        'assignedTo': inc.get('assignedTo', 'Unassigned') or 'Unassigned',
+        'alertCount': len(inc.get('alerts', [])),
+        'entities': entities,
+        'entityCount': len(entities),
+        'mitreTechniques': list({t for a in inc.get('alerts', []) for t in (a.get('mitreTechniques') or [])}),
+        'recommendations': inc.get('recommendedActions', ['Investigate alert details']) or ['Investigate alert details'],
+        'redirectIncidentId': str(inc['redirectIncidentId']) if inc.get('redirectIncidentId') else None,
+        'webUrl': f"https://security.microsoft.com/incidents/{inc.get('id', '')}"
+    }
+
+
+def _map_graph_alert(alert: dict, incident_id: str) -> dict:
+    """Map a Graph Security alert to our internal schema."""
+    return {
+        'id': alert.get('id', ''),
+        'incidentId': incident_id,
+        'title': alert.get('title', 'Alert'),
+        'severity': (alert.get('severity') or 'medium').capitalize(),
+        'status': (alert.get('status') or 'new').capitalize(),
+        'category': alert.get('category', 'SuspiciousActivity'),
+        'product': alert.get('serviceSource', 'Microsoft Defender XDR'),
+        'timestamp': alert.get('createdDateTime', ''),
+        'detectionSource': alert.get('detectionSource', 'Unknown'),
+    }
+
+
+def fetch_defender_incidents_live() -> list | None:
     """
-    Fetch real incidents from Microsoft Defender - uses real API data structure
+    Fetch real incidents from Microsoft Graph Security API.
+    GET /security/incidents  (requires SecurityIncident.Read.All)
+    Returns None on failure (to trigger fallback).
     """
-    print("Fetching Defender incidents with enriched data...")
-    
-    # Real incident data from Microsoft Defender API (50 incidents)
-    # This data structure is populated from: mcp_triage_mcp_se_ListIncidents(includeAlertsData=True, top=50)
-    # In production, this would be a live API call
-    
-    enriched_incidents = []
-    
-    # Sample enriched incidents with real patterns from Defender
-    incident_templates = [
-        # DLP incidents
-        {"severity": "Low", "category": "Exfiltration", "status": "Active", "type": "DLP"},
-        {"severity": "Low", "category": "Exfiltration", "status": "Active", "type": "DLP"},
-        {"severity": "Low", "category": "Exfiltration", "status": "Active", "type": "DLP"},
-        {"severity": "Low", "category": "Exfiltration", "status": "Active", "type": "DLP"},
-        {"severity": "Low", "category": "Exfiltration", "status": "Active", "type": "DLP"},
-        {"severity": "Low", "category": "Exfiltration", "status": "Active", "type": "DLP"},
-        {"severity": "Low", "category": "Exfiltration", "status": "Active", "type": "DLP"},
-        # High severity multi-stage incident
-        {"severity": "High", "category": "InitialAccess", "status": "Active", "type": "Multi-stage", "assigned": "admin@MngEnvMCAP050148.onmicrosoft.com"},
-        # Identity Protection - Anonymous IP
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Resolved", "type": "AnonymousIP"},
-        {"severity": "Medium", "category": "InitialAccess", "status": "Active", "type": "Discovery"},
-        # More varied incidents
-        {"severity": "High", "category": "CredentialAccess", "status": "Active", "type": "PasswordSpray"},
-        {"severity": "High", "category": "InitialAccess", "status": "Active", "type": "UnfamiliarLocation"},
-        {"severity": "Medium", "category": "Malware", "status": "Active", "type": "Hacktool"},
-        {"severity": "Low", "category": "LateralMovement", "status": "Active", "type": "RemoteConnection"},
-        {"severity": "Medium", "category": "Discovery", "status": "Active", "type": "AccountEnumeration"},
-    ]
-    
+    token = get_graph_access_token()
+    if not token:
+        return None
+
+    print("  🌐 Fetching incidents from Microsoft Graph Security API...")
+    try:
+        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        all_raw = []
+        next_url = f'{GRAPH_API_BASE}/security/incidents'
+        params = {
+            '$top': 50,
+            '$orderby': 'createdDateTime desc',
+            '$expand': 'alerts',
+        }
+        max_pages = 4  # up to 200 incidents
+
+        for _ in range(max_pages):
+            resp = requests.get(next_url, headers=headers, params=params, timeout=30)
+            if resp.status_code == 403:
+                print("  ⚠️  Permission denied: SecurityIncident.Read.All required")
+                return None
+            resp.raise_for_status()
+            data = resp.json()
+            all_raw.extend(data.get('value', []))
+            next_url = data.get('@odata.nextLink')
+            if not next_url:
+                break
+            params = None  # nextLink already includes query params
+
+        incidents = [_map_graph_incident(i) for i in all_raw]
+        print(f"  ✅ Fetched {len(incidents)} incidents from Graph API")
+        return incidents
+    except Exception as e:
+        print(f"  ⚠️  Graph incidents error: {e}")
+        return None
+
+
+def fetch_defender_incidents_sentinel() -> list | None:
+    """
+    Fallback: Query SecurityIncident table in Sentinel via Log Analytics REST API.
+    Returns None on failure.
+    """
+    workspace_id = _workspace_id()
+    if not workspace_id:
+        print("  ⚠️  SENTINEL_WORKSPACE_ID not configured — skipping Sentinel fallback")
+        return None
+
+    token = get_graph_access_token(scope='https://api.loganalytics.io/.default')
+    if not token:
+        return None
+
+    print("  🔍 Querying Sentinel SecurityIncident table via Log Analytics...")
+    kql = (
+        'SecurityIncident '
+        '| where TimeGenerated > ago(30d) '
+        '| project IncidentNumber, Title, Severity, Status, '
+        '  CreatedTime, LastModifiedTime, Owner, Classification, '
+        '  AlertsCount, Description '
+        '| order by CreatedTime desc '
+        '| take 100'
+    )
+    try:
+        resp = requests.post(
+            f'https://api.loganalytics.io/v1/workspaces/{workspace_id}/query',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+            json={'query': kql},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        columns = [c['name'] for c in data.get('tables', [{}])[0].get('columns', [])]
+        rows = data.get('tables', [{}])[0].get('rows', [])
+        incidents = []
+        for row in rows:
+            r = dict(zip(columns, row))
+            incidents.append({
+                'id': str(r.get('IncidentNumber', '')),
+                'title': r.get('Title', 'Untitled'),
+                'severity': (r.get('Severity') or 'Medium').capitalize(),
+                'status': (r.get('Status') or 'Active').capitalize(),
+                'createdTime': r.get('CreatedTime', ''),
+                'lastUpdateTime': r.get('LastModifiedTime', ''),
+                'classification': r.get('Classification', 'unknown') or 'unknown',
+                'determination': 'unknown',
+                'assignedTo': r.get('Owner', 'Unassigned') or 'Unassigned',
+                'alertCount': r.get('AlertsCount', 0) or 0,
+                'entities': [],
+                'entityCount': 0,
+                'mitreTechniques': [],
+                'recommendations': ['Investigate alert details'],
+                'webUrl': f"https://security.microsoft.com/incidents/{r.get('IncidentNumber', '')}",
+            })
+        print(f"  ✅ Fetched {len(incidents)} incidents from Sentinel KQL")
+        return incidents
+    except Exception as e:
+        print(f"  ⚠️  Sentinel query error: {e}")
+        return None
+
+
+def _generate_demo_incidents() -> list:
+    """Generate demo incidents as last-resort fallback."""
     import random
-    from datetime import datetime, timedelta
-    
-    # Generate 100 incidents by cycling through templates
-    target_count = 100
-    for i in range(target_count):
-        incident_id = 14021 + i
-        template = incident_templates[i % len(incident_templates)]
-        # Create timestamp (newer incidents first)
-        days_ago = i // 4  # About 4 incidents per day
-        incident_time = datetime.now() - timedelta(days=days_ago, hours=random.randint(0, 23))
-        
-        # Generate entities based on incident type
-        entities = []
-        mitre_techniques = []
-        recommendations = []
-        
-        if template['type'] == 'DLP':
-            entities = [
-                {'type': 'User', 'name': f'user{random.randint(1,50)}@example.com', 'verdict': 'suspicious'},
-                {'type': 'Email', 'name': f'Email subject line {incident_id}', 'verdict': 'suspicious'}
-            ]
-            mitre_techniques = ['T1566']
-            recommendations = ['Review DLP policy match', 'Verify sender legitimacy']
-            title = f"DLP policy matched for email incident #{incident_id}"
-        
-        elif template['type'] == 'Multi-stage':
-            entities = [
-                {'type': 'User', 'name': 'kehusvik@kents-events.com', 'verdict': 'suspicious'},
-                {'type': 'Device', 'name': 'win11-proxmox', 'verdict': 'suspicious'},
-                {'type': 'IP', 'name': f'192.168.11.{random.randint(1,254)}', 'verdict': 'suspicious'},
-                {'type': 'File', 'name': 'kerbrute_windows_amd64.exe', 'verdict': 'malicious'}
-            ]
-            mitre_techniques = ['T1087', 'T1087.002', 'T1110', 'T1110.003']
-            recommendations = ['Isolate affected devices', 'Reset compromised accounts', 'Review security logs']
-            title = "Multi-stage incident with Initial access & Command and control"
-        
-        elif template['type'] == 'AnonymousIP':
-            entities = [
-                {'type': 'User', 'name': 'phishme@kents-events.com', 'verdict': 'suspicious'},
-                {'type': 'IP', 'name': f'2a0b:f4c2::{random.randint(10,99)}', 'verdict': 'suspicious'}
-            ]
-            recommendations = ['Verify user identity', 'Check for compromised credentials']
-            title = "Anonymous IP address sign-in detected"
-        
-        elif template['type'] == 'PasswordSpray':
-            entities = [
-                {'type': 'User', 'name': 'kehusvik@kents-events.com', 'verdict': 'suspicious'},
-                {'type': 'IP', 'name': '172.171.236.24', 'verdict': 'suspicious'}
-            ]
-            mitre_techniques = ['T1110', 'T1110.003', 'T1110.001']
-            recommendations = ['Force password reset', 'Enable MFA', 'Block source IP']
-            title = "Password spray attack detected"
-        
-        else:
-            entities = [{'type': 'User', 'name': f'user{incident_id}@kents-events.com', 'verdict': 'unknown'}]
-            recommendations = ['Investigate incident', 'Review logs']
-            title = f"{template['type']} incident {incident_id}"
-        
-        enriched_incidents.append({
-            'id': str(incident_id),
-            'title': title,
-            'severity': template['severity'],
-            'status': template['status'],
-            'createdTime': incident_time.isoformat() + 'Z',
-            'lastUpdateTime': incident_time.isoformat() + 'Z',
+
+    templates = [
+        {"severity": "Low", "status": "Active", "type": "DLP"},
+        {"severity": "High", "status": "Active", "type": "Multi-stage"},
+        {"severity": "Medium", "status": "Resolved", "type": "AnonymousIP"},
+        {"severity": "High", "status": "Active", "type": "PasswordSpray"},
+        {"severity": "Medium", "status": "Active", "type": "Discovery"},
+        {"severity": "Low", "status": "Active", "type": "RemoteConnection"},
+        {"severity": "Medium", "status": "Resolved", "type": "Hacktool"},
+    ]
+
+    incidents = []
+    for i in range(100):
+        t = templates[i % len(templates)]
+        iid = 14021 + i
+        days_ago = i // 4
+        ts = datetime.now() - timedelta(days=days_ago, hours=random.randint(0, 23))
+        entities = [{'type': 'User', 'name': f'user{iid}@example.com', 'verdict': 'suspicious'}]
+        incidents.append({
+            'id': str(iid),
+            'title': f"{t['type']} incident #{iid}",
+            'severity': t['severity'],
+            'status': t['status'],
+            'createdTime': ts.isoformat() + 'Z',
+            'lastUpdateTime': ts.isoformat() + 'Z',
             'classification': 'unknown',
             'determination': 'unknown',
-            'assignedTo': template.get('assigned', 'Unassigned'),
+            'assignedTo': 'Unassigned',
             'alertCount': random.randint(1, 5),
             'entities': entities,
             'entityCount': len(entities),
-            'mitreTechniques': mitre_techniques,
-            'recommendations': recommendations if recommendations else ['Investigate alert details'],
-            'webUrl': f'https://security.microsoft.com/incident2/{incident_id}/overview'
+            'mitreTechniques': [],
+            'recommendations': ['Investigate alert details'],
+            'webUrl': f'https://security.microsoft.com/incident2/{iid}/overview',
         })
-    
-    print(f"  ✅ Fetched {len(enriched_incidents)} enriched incidents from Defender")
-    print(f"  📊 Total entities extracted: {sum(inc['entityCount'] for inc in enriched_incidents)}")
-    return enriched_incidents
+    return incidents
 
-def fetch_defender_alerts_list(incidents):
+
+def get_last_incident_source() -> str:
+    """Return the data source used in the most recent fetch_defender_incidents() call."""
+    return _last_incident_source
+
+
+def fetch_defender_incidents() -> list:
     """
-    Fetch real alerts from Microsoft Defender and link to incidents
+    Fetch incidents with three-tier fallback:
+    1. Microsoft Graph Security API (live)
+    2. Sentinel Log Analytics KQL (live)
+    3. Demo data (offline)
+    """
+    global _last_incident_source
+    print("Fetching Defender incidents...")
+
+    # Tier 1: Graph Security API
+    result = fetch_defender_incidents_live()
+    if result is not None:
+        _last_incident_source = 'microsoft_graph_api'
+        return result
+
+    # Tier 2: Sentinel KQL
+    result = fetch_defender_incidents_sentinel()
+    if result is not None:
+        _last_incident_source = 'sentinel_kql'
+        return result
+
+    # Tier 3: Demo data
+    print("  📊 Using demo incident data (no API credentials available)")
+    _last_incident_source = 'demo'
+    return _generate_demo_incidents()
+
+
+def fetch_defender_alerts_list(incidents) -> list:
+    """
+    Fetch alerts linked to incidents.
+    If incidents came from Graph (with expanded alerts), extract them.
+    Otherwise generate from incident data.
     """
     print("Fetching Defender alerts...")
-    
+
+    source = get_last_incident_source()
+
+    # If we fetched from Graph with $expand=alerts, alerts are already embedded
+    if source == 'microsoft_graph_api':
+        token = get_graph_access_token()
+        if token:
+            headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+            all_alerts = []
+            for inc in incidents:
+                try:
+                    resp = requests.get(
+                        f'{GRAPH_API_BASE}/security/incidents/{inc["id"]}/alerts',
+                        headers=headers,
+                        params={'$top': 10},
+                        timeout=15,
+                    )
+                    if resp.status_code == 200:
+                        for a in resp.json().get('value', []):
+                            all_alerts.append(_map_graph_alert(a, inc['id']))
+                except Exception:
+                    pass
+            if all_alerts:
+                print(f"  ✅ Fetched {len(all_alerts)} real alerts from Graph API")
+                return all_alerts
+
+    # Sentinel KQL alerts
+    if source == 'sentinel_kql':
+        workspace_id = _workspace_id()
+        la_token = get_graph_access_token(scope='https://api.loganalytics.io/.default')
+        if workspace_id and la_token:
+            try:
+                kql = (
+                    'SecurityAlert '
+                    '| where TimeGenerated > ago(30d) '
+                    '| project AlertName, AlertSeverity, Status, ProviderName, '
+                    '  TimeGenerated, SystemAlertId '
+                    '| order by TimeGenerated desc '
+                    '| take 500'
+                )
+                resp = requests.post(
+                    f'https://api.loganalytics.io/v1/workspaces/{workspace_id}/query',
+                    headers={'Authorization': f'Bearer {la_token}', 'Content-Type': 'application/json'},
+                    json={'query': kql},
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    cols = [c['name'] for c in data.get('tables', [{}])[0].get('columns', [])]
+                    rows = data.get('tables', [{}])[0].get('rows', [])
+                    alerts = []
+                    inc_ids = {i['id'] for i in incidents}
+                    for row in rows:
+                        r = dict(zip(cols, row))
+                        alerts.append({
+                            'id': r.get('SystemAlertId', ''),
+                            'incidentId': '',  # Sentinel alerts don't always link directly
+                            'title': r.get('AlertName', 'Alert'),
+                            'severity': (r.get('AlertSeverity') or 'Medium').capitalize(),
+                            'status': r.get('Status', 'New'),
+                            'category': 'SuspiciousActivity',
+                            'product': r.get('ProviderName', 'Microsoft Sentinel'),
+                            'timestamp': r.get('TimeGenerated', ''),
+                            'detectionSource': r.get('ProviderName', 'Sentinel'),
+                        })
+                    if alerts:
+                        print(f"  ✅ Fetched {len(alerts)} alerts from Sentinel KQL")
+                        return alerts
+            except Exception as e:
+                print(f"  ⚠️  Sentinel alert query error: {e}")
+
+    # Demo fallback — generate synthetic alerts
     import random
-    from datetime import datetime, timedelta
-    
-    # Generate alerts linked to incidents
     alerts = []
-    alert_id = 1000
-    
-    # Create 2-5 alerts per incident
-    for incident in incidents:
-        num_alerts = incident['alertCount']
-        incident_time = datetime.fromisoformat(incident['createdTime'].replace('Z', ''))
-        
-        for i in range(num_alerts):
-            # Alerts come before or at the same time as incident
-            alert_time = incident_time - timedelta(minutes=random.randint(0, 120))
-            
-            alert_titles = {
-                'DLP': ['Sensitive data detected in email', 'DLP policy violation', 'Data exfiltration attempt'],
-                'Multi-stage': ['Suspicious authentication', 'Malware execution detected', 'Command and control activity', 'Lateral movement detected'],
-                'AnonymousIP': ['Anonymous IP sign-in', 'Tor/VPN connection detected', 'Suspicious location'],
-                'PasswordSpray': ['Multiple failed login attempts', 'Password spray detected', 'Brute force attack'],
-                'Discovery': ['Account enumeration detected', 'Reconnaissance activity'],
-                'Hacktool': ['Malicious tool execution', 'HackTool detected'],
-                'UnfamiliarLocation': ['Unfamiliar sign-in location', 'Impossible travel detected'],
-                'RemoteConnection': ['Remote connection attempt', 'RDP session initiated']
-            }
-            
-            incident_type = 'Multi-stage' if 'Multi-stage' in incident['title'] else \
-                           'DLP' if 'DLP' in incident['title'] else \
-                           'AnonymousIP' if 'Anonymous' in incident['title'] else \
-                           'PasswordSpray' if 'Password spray' in incident['title'] else 'Discovery'
-            
-            title_options = alert_titles.get(incident_type, ['Security alert detected'])
-            
+    aid = 1000
+    for inc in incidents:
+        n = inc.get('alertCount', 1) or 1
+        inc_time = datetime.fromisoformat(inc['createdTime'].replace('Z', ''))
+        for _ in range(n):
+            t = inc_time - timedelta(minutes=random.randint(0, 120))
             alerts.append({
-                'id': str(alert_id),
-                'incidentId': incident['id'],
-                'title': random.choice(title_options),
-                'severity': incident['severity'],
-                'category': incident.get('category', 'SuspiciousActivity'),
-                'product': random.choice(['Microsoft Defender XDR', 'Microsoft Defender for Endpoint', 
-                                        'AAD Identity Protection', 'Microsoft Defender for Office 365']),
-                'timestamp': alert_time.isoformat() + 'Z',
+                'id': str(aid),
+                'incidentId': inc['id'],
+                'title': f"Alert for {inc['title'][:40]}",
+                'severity': inc['severity'],
+                'category': 'SuspiciousActivity',
+                'product': 'Microsoft Defender XDR',
+                'timestamp': t.isoformat() + 'Z',
                 'status': random.choice(['New', 'InProgress', 'Resolved']),
-                'detectionSource': random.choice(['EDR', 'Email Gateway', 'Identity Protection', 'Cloud Security'])
+                'detectionSource': 'Demo',
             })
-            alert_id += 1
-    
-    print(f"  ✅ Fetched {len(alerts)} alerts linked to incidents")
+            aid += 1
+    print(f"  ✅ Generated {len(alerts)} demo alerts")
     return alerts
 
 def calculate_daily_alert_volume(alerts):
@@ -387,15 +603,11 @@ def fetch_sentinel_incidents():
     | take 100
     """
     
-    # In production, this would call:
-    # result = mcp_microsoft_sen2_query_lake(query=kql_query, workspaceId=WORKSPACE_ID)
-    
-    # For now, return structure that would come from Sentinel
     return {
         'query': kql_query,
-        'workspaceId': WORKSPACE_ID,
-        'workspaceName': WORKSPACE_NAME,
-        'results': []  # Would contain actual incidents
+        'workspaceId': _workspace_id(),
+        'workspaceName': _workspace_name(),
+        'results': []
     }
 
 def fetch_defender_alerts():
@@ -624,8 +836,6 @@ def fetch_daily_alert_trends():
     """
     
     # In production:
-    # result = mcp_microsoft_sen2_query_lake(query=kql_query, workspaceId=WORKSPACE_ID)
-    
     return {
         'query': kql_query,
         'results': []
@@ -765,7 +975,8 @@ def fetch_virustotal_stats(incidents):
     Uses real VirusTotal API if key is configured, otherwise generates stats from incident data
     """
     # If VirusTotal API key is configured, fetch real data from files in incidents
-    if VIRUSTOTAL_API_KEY:
+    vt_key = _cfg('VIRUSTOTAL_API_KEY')
+    if vt_key:
         print("  🔍 Querying VirusTotal API with real API key...")
         
         # Extract file hashes from incidents
@@ -786,7 +997,7 @@ def fetch_virustotal_stats(incidents):
         detection_results = []
         
         try:
-            headers = {'x-apikey': VIRUSTOTAL_API_KEY}
+            headers = {'x-apikey': vt_key}
             
             # For each file hash, query VirusTotal (limited to first 5 for demo)
             for file_hash in file_hashes[:5]:
