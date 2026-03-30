@@ -4,6 +4,18 @@ Automated Security Operations Center dashboard integrating **Microsoft Defender 
 
 > **Built to inspire.** Created using AI-assisted (VIBE) coding to demonstrate SOC dashboard patterns. Use as a reference implementation — not validated for large-scale production.
 
+## Screenshots
+
+### First-Run Setup Wizard
+On a fresh deployment, the dashboard presents a setup wizard to configure Entra ID credentials — no SSH or `.env` editing required.
+
+![Setup Wizard](docs/screenshots/setup-wizard.png)
+
+### Dashboard
+Live incident data from Microsoft Defender XDR with Secure Score, alert trends, threat intelligence, and incident management.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
 ## Quick Start (Local Development)
 
 ```bash
