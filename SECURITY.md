@@ -2,20 +2,23 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| Version | Supported |
+| ------- | --------- |
+| main branch (latest) | Yes |
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+If you discover a security vulnerability in this project:
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+1. **Do NOT open a public issue.**
+2. Email the maintainer directly or use GitHub's private vulnerability reporting.
+3. Include: description, reproduction steps, and potential impact.
+4. You can expect an initial response within 72 hours.
+
+## Security Practices
+
+- All credentials are loaded from environment variables (`.env`) — never committed.
+- SQLite queries use parameterised bindings — no string formatting in SQL.
+- Flask debug mode is disabled by default; only enabled via `FLASK_DEBUG=1` env var.
+- CORS is restricted to configured origins.
+- See [docs/SECURITY_FIXES.md](docs/SECURITY_FIXES.md) for tracked vulnerability patches.

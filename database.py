@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import os
 
-DB_FILE = 'soc_dashboard.db'
+DB_FILE = os.getenv('DB_PATH', 'soc_dashboard.db')
 
 def get_connection():
     """Get database connection with row factory for dict results"""
@@ -102,6 +102,16 @@ def init_database():
         )
     ''')
     
+    # Configuration table (for settings page)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS config (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            is_encrypted INTEGER DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Create indices for common queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_created ON incidents(created_time)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)')
@@ -164,6 +174,49 @@ def insert_incident(incident: Dict[str, Any]) -> bool:
         return False
     finally:
         conn.close()
+
+
+# Column whitelist for safe dynamic update
+_UPDATABLE_INCIDENT_COLS = frozenset({
+    'assigned_to', 'severity', 'status', 'classification', 'determination',
+})
+
+# Map DB column names to JSON keys inside the data blob
+_COL_TO_JSON_KEY = {
+    'assigned_to': 'assignedTo',
+    'severity': 'severity',
+    'status': 'status',
+    'classification': 'classification',
+    'determination': 'determination',
+}
+
+
+def update_incident_field(incident_id: str, column: str, value: str) -> bool:
+    """Update a single column on an incident row AND its data JSON blob."""
+    if column not in _UPDATABLE_INCIDENT_COLS:
+        raise ValueError(f'Column {column!r} not in updatable whitelist')
+    conn = get_connection()
+    try:
+        # Update the dedicated column
+        cur = conn.execute(
+            f'UPDATE incidents SET {column} = ? WHERE id = ?',
+            (value, incident_id),
+        )
+        # Also patch the JSON data blob so get_incidents() returns the new value
+        json_key = _COL_TO_JSON_KEY.get(column)
+        if json_key and cur.rowcount > 0:
+            row = conn.execute('SELECT data FROM incidents WHERE id = ?',
+                               (incident_id,)).fetchone()
+            if row:
+                blob = json.loads(row['data'])
+                blob[json_key] = value
+                conn.execute('UPDATE incidents SET data = ? WHERE id = ?',
+                             (json.dumps(blob), incident_id))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
 
 def insert_alert(alert: Dict[str, Any]) -> bool:
     """Insert or update an alert"""
@@ -249,7 +302,8 @@ def get_incidents(days: Optional[int] = None,
     # Ordering and limit
     query += " ORDER BY created_time DESC"
     if limit:
-        query += f" LIMIT {limit}"
+        query += " LIMIT ?"
+        params.append(limit)
     
     cursor.execute(query, params)
     rows = cursor.fetchall()
