@@ -19,10 +19,12 @@ try:
         get_database_stats,
         init_database,
         update_incident_field,
+        create_case, get_cases, get_case, update_case, delete_case,
     )
     from fetch_live_data import (
         fetch_secure_score, calculate_daily_alert_volume, get_last_incident_source,
         graph_patch_incident, graph_post_comment, graph_send_mail,
+        send_teams_channel_escalation,
     )
     DB_AVAILABLE = True
 except ImportError:
@@ -221,7 +223,7 @@ def update_settings():
         'CLIENT_ID', 'CLIENT_SECRET', 'TENANT_ID',
         'SENTINEL_WORKSPACE_ID', 'SENTINEL_WORKSPACE_NAME',
         'VIRUSTOTAL_API_KEY', 'TALOS_API_KEY', 'ABUSEIPDB_API_KEY',
-        'REFRESH_INTERVAL_MINUTES', 'ESCALATION_EMAIL',
+        'REFRESH_INTERVAL_MINUTES', 'ESCALATION_EMAIL', 'TEAMS_CHANNEL_ID',
     }
     updated = []
     for key, value in payload.items():
@@ -531,11 +533,93 @@ def escalate_incident(incident_id):
             else:
                 print('⚠️  No delegated token available — escalation email skipped')
 
+        # 5. Teams channel notification via Graph API (if configured)
+        teams_channel = get_config('TEAMS_CHANNEL_ID') or ''
+        if teams_channel.strip():
+            teams_token = get_user_token()
+            if teams_token:
+                try:
+                    send_teams_channel_escalation(
+                        teams_channel.strip(), incident_id,
+                        severity.title(), f'{name} ({email})',
+                        category, notes,
+                        access_token=teams_token,
+                    )
+                    print(f'💬 Teams escalation notification sent')
+                except Exception as teams_exc:
+                    print(f'⚠️  Teams escalation notification failed: {teams_exc}')
+            else:
+                print('⚠️  No delegated token available — Teams notification skipped')
+
         print(f'⚠️  Incident {incident_id} escalated by {email}')
         return jsonify({'success': True, 'severity': severity.title()})
     except Exception as exc:
         print(f'❌ Escalate incident {incident_id} failed: {exc}')
         return jsonify({'error': 'Failed to escalate incident'}), 502
+
+
+# ─── Cases CRUD API ──────────────────────────────────────────────────────────
+
+@app.route('/api/cases', methods=['GET'])
+@require_login
+def list_cases():
+    status = request.args.get('status')
+    return jsonify(get_cases(status))
+
+
+@app.route('/api/cases', methods=['POST'])
+@require_login
+def create_case_route():
+    user = session.get('user', {})
+    body = request.get_json(silent=True) or {}
+    title = (body.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'Title is required'}), 400
+    priority = body.get('priority', 'Medium')
+    if priority not in ('Very low', 'Low', 'Medium', 'High', 'Critical'):
+        return jsonify({'error': 'Invalid priority'}), 400
+    case_id = create_case(
+        title=title,
+        priority=priority,
+        description=(body.get('description') or '').strip(),
+        assigned_to=(body.get('assigned_to') or '').strip(),
+        created_by=user.get('email', ''),
+        incident_ids=body.get('incident_ids'),
+    )
+    print(f'📁 Case #{case_id} created by {user.get("email", "?")}')
+    return jsonify({'success': True, 'case_id': case_id}), 201
+
+
+@app.route('/api/cases/<int:case_id>', methods=['GET'])
+@require_login
+def get_case_route(case_id):
+    case = get_case(case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    return jsonify(case)
+
+
+@app.route('/api/cases/<int:case_id>', methods=['PATCH'])
+@require_login
+def update_case_route(case_id):
+    body = request.get_json(silent=True) or {}
+    updates = {}
+    for field in ('title', 'status', 'priority', 'assigned_to', 'description'):
+        if field in body:
+            updates[field] = body[field]
+    incident_ids = body.get('incident_ids')  # None = don't touch, list = replace
+    if not update_case(case_id, updates, incident_ids):
+        return jsonify({'error': 'Case not found or no changes'}), 404
+    return jsonify({'success': True})
+
+
+@app.route('/api/cases/<int:case_id>', methods=['DELETE'])
+@require_login
+def delete_case_route(case_id):
+    if not delete_case(case_id):
+        return jsonify({'error': 'Case not found'}), 404
+    print(f'🗑️  Case #{case_id} deleted by {session.get("user", {}).get("email", "?")}')
+    return jsonify({'success': True})
 
 
 @app.route('/')

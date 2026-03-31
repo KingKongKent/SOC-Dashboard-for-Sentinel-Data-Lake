@@ -112,6 +112,33 @@ def init_database():
         )
     ''')
 
+    # Cases table (local case tracking — Defender Cases API not yet public)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'New',
+            priority TEXT NOT NULL DEFAULT 'Medium',
+            assigned_to TEXT,
+            description TEXT,
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Junction table: cases ↔ incidents (many-to-many)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS case_incidents (
+            case_id INTEGER NOT NULL,
+            incident_id TEXT NOT NULL,
+            linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (case_id, incident_id),
+            FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+            FOREIGN KEY (incident_id) REFERENCES incidents(id)
+        )
+    ''')
+
     # Create indices for common queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_created ON incidents(created_time)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)')
@@ -120,6 +147,8 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_incident ON entities(incident_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_case_incidents_case ON case_incidents(case_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_case_incidents_incident ON case_incidents(incident_id)')
     
     conn.commit()
     conn.close()
@@ -438,6 +467,112 @@ def get_database_stats() -> Dict[str, Any]:
         'oldest_incident': date_range['oldest'],
         'newest_incident': date_range['newest']
     }
+
+# ─── Cases CRUD ───────────────────────────────────────────────────────────────
+
+def create_case(title: str, priority: str = 'Medium', description: str = '',
+                assigned_to: str = '', created_by: str = '',
+                incident_ids: Optional[List[str]] = None) -> int:
+    """Create a new case and optionally link incidents. Returns case id."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            '''INSERT INTO cases (title, priority, description, assigned_to, created_by)
+               VALUES (?, ?, ?, ?, ?)''',
+            (title, priority, description, assigned_to, created_by),
+        )
+        case_id = cur.lastrowid
+        for iid in (incident_ids or []):
+            conn.execute(
+                'INSERT OR IGNORE INTO case_incidents (case_id, incident_id) VALUES (?, ?)',
+                (case_id, str(iid)),
+            )
+        conn.commit()
+        return case_id
+    finally:
+        conn.close()
+
+
+def get_cases(status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Return all cases, optionally filtered by status."""
+    conn = get_connection()
+    try:
+        if status:
+            rows = conn.execute(
+                'SELECT * FROM cases WHERE status = ? ORDER BY created_at DESC', (status,)
+            ).fetchall()
+        else:
+            rows = conn.execute('SELECT * FROM cases ORDER BY created_at DESC').fetchall()
+        cases = [dict(r) for r in rows]
+        for c in cases:
+            links = conn.execute(
+                'SELECT incident_id FROM case_incidents WHERE case_id = ?', (c['id'],)
+            ).fetchall()
+            c['incident_ids'] = [r['incident_id'] for r in links]
+        return cases
+    finally:
+        conn.close()
+
+
+def get_case(case_id: int) -> Optional[Dict[str, Any]]:
+    """Return a single case by id."""
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM cases WHERE id = ?', (case_id,)).fetchone()
+        if not row:
+            return None
+        case = dict(row)
+        links = conn.execute(
+            'SELECT incident_id FROM case_incidents WHERE case_id = ?', (case_id,)
+        ).fetchall()
+        case['incident_ids'] = [r['incident_id'] for r in links]
+        return case
+    finally:
+        conn.close()
+
+
+_UPDATABLE_CASE_COLS = frozenset({'title', 'status', 'priority', 'assigned_to', 'description'})
+
+
+def update_case(case_id: int, updates: Dict[str, Any],
+                incident_ids: Optional[List[str]] = None) -> bool:
+    """Update case fields and optionally replace linked incidents."""
+    conn = get_connection()
+    try:
+        sets = []
+        vals = []
+        for col, val in updates.items():
+            if col in _UPDATABLE_CASE_COLS:
+                sets.append(f'{col} = ?')
+                vals.append(val)
+        if sets:
+            sets.append('updated_at = CURRENT_TIMESTAMP')
+            vals.append(case_id)
+            conn.execute(f"UPDATE cases SET {', '.join(sets)} WHERE id = ?", vals)
+        if incident_ids is not None:
+            conn.execute('DELETE FROM case_incidents WHERE case_id = ?', (case_id,))
+            for iid in incident_ids:
+                conn.execute(
+                    'INSERT OR IGNORE INTO case_incidents (case_id, incident_id) VALUES (?, ?)',
+                    (case_id, str(iid)),
+                )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_case(case_id: int) -> bool:
+    """Delete a case and its incident links."""
+    conn = get_connection()
+    try:
+        conn.execute('DELETE FROM case_incidents WHERE case_id = ?', (case_id,))
+        cur = conn.execute('DELETE FROM cases WHERE id = ?', (case_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
 
 if __name__ == '__main__':
     print("Initializing SOC Dashboard Database...")
