@@ -49,6 +49,7 @@ from auth import (
     handle_callback,
     handle_logout,
     get_current_user,
+    get_user_token,
 )
 from config_manager import get_config, set_config, get_all_config
 
@@ -474,49 +475,62 @@ def assign_incident(incident_id):
 @app.route('/api/incidents/<incident_id>/escalate', methods=['POST'])
 @require_login
 def escalate_incident(incident_id):
-    """Escalate: bump severity to High, tag, comment, email notification."""
+    """Escalate: bump severity, tag, comment, email notification."""
     user = session.get('user', {})
     email = user.get('email', '')
     name = user.get('name', email)
-    oid = user.get('oid', '')
     if not str(incident_id).isdigit():
         return jsonify({'error': 'Only Graph incidents (numeric ID) can be escalated'}), 400
 
     body = request.get_json(silent=True) or {}
-    reason = body.get('reason', 'No reason provided')
+    severity = body.get('severity', 'high')
+    if severity not in ('high', 'critical'):
+        return jsonify({'error': 'Severity must be high or critical'}), 400
+    category = body.get('category', '')
+    notes = body.get('notes', '')
+    reason = f'{category}. {notes}'.strip(' .') if category else (notes or 'No reason provided')
 
     try:
         # 1. Bump severity + tag
         graph_patch_incident(incident_id, {
-            'severity': 'high',
+            'severity': severity,
             'customTags': ['Escalated'],
         })
         # 2. Comment
         graph_post_comment(incident_id,
-            f'ESCALATED by {name} ({email}) via SOC Dashboard. Reason: {reason}')
+            f'ESCALATED by {name} ({email}) via SOC Dashboard.\n'
+            f'Severity: {severity.title()}\n'
+            f'Category: {category or "N/A"}\n'
+            f'Notes: {notes or "N/A"}')
         # 3. Update local DB
-        update_incident_field(incident_id, 'severity', 'High')
+        update_incident_field(incident_id, 'severity', severity.title())
 
-        # 4. Send email notification
+        # 4. Send email notification (delegated — from user's own mailbox)
         escalation_email = get_config('ESCALATION_EMAIL') or ''
         recipients = [r.strip() for r in escalation_email.split(',') if r.strip()]
-        if recipients and oid:
-            subject = f'[SOC] Incident {incident_id} Escalated'
-            html_body = (
-                f'<h2>Incident {incident_id} Escalated</h2>'
-                f'<p><b>Escalated by:</b> {name} ({email})</p>'
-                f'<p><b>Reason:</b> {reason}</p>'
-                f'<p><a href="https://security.microsoft.com/incidents/{incident_id}">'
-                f'Open in Defender Portal</a></p>'
-            )
-            try:
-                graph_send_mail(oid, subject, html_body, recipients)
-                print(f'📧 Escalation email sent to {recipients}')
-            except Exception as mail_exc:
-                print(f'⚠️  Escalation email failed: {mail_exc}')
+        if recipients:
+            user_token = get_user_token()
+            if user_token:
+                subject = f'[SOC] Incident {incident_id} Escalated — {severity.title()}'
+                html_body = (
+                    f'<h2>Incident {incident_id} Escalated</h2>'
+                    f'<p><b>Severity:</b> {severity.title()}</p>'
+                    f'<p><b>Escalated by:</b> {name} ({email})</p>'
+                    f'<p><b>Category:</b> {category or "N/A"}</p>'
+                    f'<p><b>Notes:</b> {notes or "N/A"}</p>'
+                    f'<p><a href="https://security.microsoft.com/incidents/{incident_id}">'
+                    f'Open in Defender Portal</a></p>'
+                )
+                try:
+                    graph_send_mail(user_token, subject, html_body, recipients)
+                    print(f'📧 Escalation email sent to {recipients}')
+                except Exception as mail_exc:
+                    print(f'⚠️  Escalation email failed: {mail_exc}')
+            else:
+                print('⚠️  No delegated token available — escalation email skipped')
 
         print(f'⚠️  Incident {incident_id} escalated by {email}')
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'severity': severity.title()})
     except Exception as exc:
         print(f'❌ Escalate incident {incident_id} failed: {exc}')
         return jsonify({'error': 'Failed to escalate incident'}), 502

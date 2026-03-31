@@ -153,6 +153,15 @@
             line-height: 20px;
         }
         .modal-close:hover { color: #000; }
+        .esc-field { margin-bottom: 16px; }
+        .esc-field label { display: block; font-weight: 600; margin-bottom: 6px; color: #333; }
+        .esc-field select, .esc-field textarea {
+            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;
+            font-size: 14px; font-family: inherit; box-sizing: border-box;
+        }
+        .esc-field select:focus, .esc-field textarea:focus {
+            outline: none; border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,0.15);
+        }
         .severity-badge {
             display: inline-block;
             padding: 6px 12px;
@@ -577,6 +586,49 @@
         <div class="modal-content">
             <span class="modal-close" onclick="closeModal()">&times;</span>
             <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <!-- Escalation Modal -->
+    <div id="escalateModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 520px;">
+            <span class="modal-close" onclick="cancelEscalation()">&times;</span>
+            <h2 style="margin-top:0; color:#c62828;">⚠️ Escalate Incident</h2>
+            <input type="hidden" id="escalateIncidentId">
+
+            <div class="esc-field">
+                <label>Target Severity</label>
+                <select id="escalateSeverity">
+                    <option value="high" selected>High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+
+            <div class="esc-field">
+                <label>Escalation Category</label>
+                <select id="escalateCategory">
+                    <option value="">— Select a reason —</option>
+                    <option value="Active threat / compromise in progress">Active threat / compromise in progress</option>
+                    <option value="Executive or VIP account involved">Executive or VIP account involved</option>
+                    <option value="Data exfiltration indicators">Data exfiltration indicators</option>
+                    <option value="Lateral movement detected">Lateral movement detected</option>
+                    <option value="Ransomware indicators">Ransomware indicators</option>
+                    <option value="Regulatory or compliance impact">Regulatory or compliance impact</option>
+                    <option value="Multiple correlated incidents">Multiple correlated incidents</option>
+                    <option value="Third-party or supply chain compromise">Third-party or supply chain compromise</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+
+            <div class="esc-field">
+                <label>Additional Notes <span style="color:#999; font-weight:normal;">(optional)</span></label>
+                <textarea id="escalateNotes" rows="4" placeholder="Provide context — e.g. affected assets, observed IOCs, business impact…"></textarea>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:20px; justify-content:flex-end;">
+                <button class="refresh-btn" style="background:#666;" onclick="cancelEscalation()">Cancel</button>
+                <button id="btnSubmitEscalate" class="refresh-btn" style="background:#f44336;" onclick="submitEscalation()">⚠️ Confirm Escalation</button>
+            </div>
         </div>
     </div>
 
@@ -3049,38 +3101,58 @@
             }
         }
 
-        async function escalateIncident(incidentId) {
-            const reason = prompt('Escalation reason (optional):');
-            if (reason === null) return;  // cancelled
-            const btn = document.getElementById('btnEscalate');
-            if (!btn) return;
+        function escalateIncident(incidentId) {
+            document.getElementById('escalateIncidentId').value = incidentId;
+            document.getElementById('escalateSeverity').value = 'high';
+            document.getElementById('escalateCategory').value = '';
+            document.getElementById('escalateNotes').value = '';
+            document.getElementById('btnSubmitEscalate').disabled = false;
+            document.getElementById('btnSubmitEscalate').textContent = '⚠️ Confirm Escalation';
+            document.getElementById('escalateModal').style.display = 'block';
+        }
+
+        function cancelEscalation() {
+            document.getElementById('escalateModal').style.display = 'none';
+        }
+
+        async function submitEscalation() {
+            const incidentId = document.getElementById('escalateIncidentId').value;
+            const severity = document.getElementById('escalateSeverity').value;
+            const category = document.getElementById('escalateCategory').value;
+            const notes = document.getElementById('escalateNotes').value.trim();
+            if (!category) { alert('Please select an escalation category.'); return; }
+            const btn = document.getElementById('btnSubmitEscalate');
             btn.disabled = true;
             btn.textContent = '⏳ Escalating…';
             try {
                 const resp = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/escalate`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({reason: reason || 'Manual escalation'})
+                    body: JSON.stringify({ severity, category, notes })
                 });
                 const data = await resp.json();
                 if (resp.ok && data.success) {
-                    btn.textContent = '✅ Escalated';
-                    btn.style.background = '#e67e22';
-                    // Update severity in modal
-                    const badges = document.querySelectorAll('#incidentModalContent .severity-badge');
-                    badges.forEach(b => { b.className = 'severity-badge severity-high'; b.textContent = 'High'; });
-                    // Update allIncidents array so table reflects the change
+                    const newSev = data.severity || severity.charAt(0).toUpperCase() + severity.slice(1);
+                    document.getElementById('escalateModal').style.display = 'none';
+                    // Update escalate button on incident modal
+                    const escBtn = document.getElementById('btnEscalate');
+                    if (escBtn) { escBtn.textContent = '✅ Escalated'; escBtn.style.background = '#e67e22'; escBtn.disabled = true; }
+                    // Update severity badges in modal
+                    const sevClass = newSev === 'Critical' ? 'severity-high' : 'severity-' + newSev.toLowerCase();
+                    const badges = document.querySelectorAll('#modalContent .severity-badge');
+                    badges.forEach(b => { b.className = 'severity-badge ' + sevClass; b.textContent = newSev; });
+                    // Update allIncidents array
                     const inc = allIncidents.find(i => String(i.id) === String(incidentId));
-                    if (inc) inc.severity = 'High';
+                    if (inc) inc.severity = newSev;
                     renderIncidentsTable();
                 } else {
                     alert(data.error || 'Failed to escalate incident');
-                    btn.textContent = '⚠️ Escalate';
+                    btn.textContent = '⚠️ Confirm Escalation';
                     btn.disabled = false;
                 }
             } catch (err) {
                 alert('Network error — could not escalate incident');
-                btn.textContent = '⚠️ Escalate';
+                btn.textContent = '⚠️ Confirm Escalation';
                 btn.disabled = false;
             }
         }
@@ -3090,6 +3162,10 @@
             const modal = document.getElementById('incidentModal');
             if (event.target == modal) {
                 closeModal();
+            }
+            const escModal = document.getElementById('escalateModal');
+            if (event.target == escModal) {
+                cancelEscalation();
             }
         }
 

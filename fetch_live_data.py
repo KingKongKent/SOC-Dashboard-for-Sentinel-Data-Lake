@@ -112,13 +112,15 @@ def graph_post_comment(incident_id: str, comment_text: str) -> dict:
     return resp.json()
 
 
-def graph_send_mail(sender_oid: str, subject: str, html_body: str,
+def graph_send_mail(token: str, subject: str, html_body: str,
                     recipients: list[str]) -> None:
-    """Send an email via Graph /users/{oid}/sendMail. Requires Mail.Send."""
-    token = get_graph_access_token()
-    if not token:
-        raise RuntimeError('Could not obtain Graph token')
-    url = f'{GRAPH_API_BASE}/users/{sender_oid}/sendMail'
+    """Send an email via Graph /me/sendMail using a delegated user token.
+
+    The token must be a delegated access token with Mail.Send scope,
+    obtained from the logged-in user's session (not client_credentials).
+    The email is sent from the authenticated user's own mailbox.
+    """
+    url = f'{GRAPH_API_BASE}/me/sendMail'
     message = {
         'message': {
             'subject': subject,

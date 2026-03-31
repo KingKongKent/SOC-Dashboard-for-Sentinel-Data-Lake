@@ -24,7 +24,7 @@ def _cfg(key: str, default: str = '') -> str:
     return os.getenv(key, default).strip()
 
 
-SCOPES = ['User.Read']
+SCOPES = ['User.Read', 'Mail.Send']
 
 
 def _get_authority() -> str:
@@ -35,7 +35,22 @@ def _get_authority() -> str:
     return 'https://login.microsoftonline.com/common'
 
 
-def _get_msal_app():
+def _build_token_cache() -> msal.SerializableTokenCache:
+    """Load MSAL token cache from session (or create empty)."""
+    cache = msal.SerializableTokenCache()
+    blob = session.get('token_cache')
+    if blob:
+        cache.deserialize(blob)
+    return cache
+
+
+def _save_token_cache(cache: msal.SerializableTokenCache) -> None:
+    """Persist MSAL token cache back to session if changed."""
+    if cache.has_state_changed:
+        session['token_cache'] = cache.serialize()
+
+
+def _get_msal_app(cache: msal.SerializableTokenCache | None = None):
     """Build a ConfidentialClientApplication using current config."""
     client_id = _cfg('CLIENT_ID')
     client_secret = _cfg('CLIENT_SECRET')
@@ -45,6 +60,7 @@ def _get_msal_app():
         client_id,
         authority=_get_authority(),
         client_credential=client_secret,
+        token_cache=cache,
     )
 
 
@@ -92,7 +108,8 @@ def require_admin(f):
 
 def initiate_login():
     """Start the OAuth2 authorization code flow."""
-    app = _get_msal_app()
+    cache = _build_token_cache()
+    app = _get_msal_app(cache)
     if not app:
         return '<h3>Login unavailable</h3><p>CLIENT_ID and CLIENT_SECRET must be configured.</p>', 503
 
@@ -101,6 +118,7 @@ def initiate_login():
         redirect_uri=_get_redirect_uri(),
     )
     session['auth_flow'] = flow
+    _save_token_cache(cache)
     return redirect(flow['auth_uri'])
 
 
@@ -110,7 +128,8 @@ def handle_callback():
     if not flow:
         return redirect(url_for('login'))
 
-    app = _get_msal_app()
+    cache = _build_token_cache()
+    app = _get_msal_app(cache)
     if not app:
         return redirect(url_for('login'))
 
@@ -125,6 +144,9 @@ def handle_callback():
             f"<p>{result.get('error_description', result['error'])}</p>"
             f"<a href='/login'>Try again</a>"
         ), 400
+
+    # Persist token cache (contains access + refresh tokens for delegated scopes)
+    _save_token_cache(cache)
 
     id_claims = result.get('id_token_claims', {})
     email = id_claims.get('preferred_username', '')
@@ -144,6 +166,29 @@ def handle_logout():
     """Clear the local session and redirect to login."""
     session.clear()
     return redirect('/login')
+
+
+def get_user_token(scopes: list[str] | None = None) -> str | None:
+    """Get a delegated access token for the logged-in user via silent acquisition.
+
+    Returns the token string, or None if unavailable (expired session,
+    consent revoked, etc.).  Callers should treat None as 'skip this
+    operation' — never block core functionality on optional email.
+    """
+    if scopes is None:
+        scopes = SCOPES  # includes Mail.Send
+    cache = _build_token_cache()
+    app = _get_msal_app(cache)
+    if not app:
+        return None
+    accounts = app.get_accounts()
+    if not accounts:
+        return None
+    result = app.acquire_token_silent(scopes, account=accounts[0])
+    _save_token_cache(cache)
+    if result and 'access_token' in result:
+        return result['access_token']
+    return None
 
 
 def get_current_user():

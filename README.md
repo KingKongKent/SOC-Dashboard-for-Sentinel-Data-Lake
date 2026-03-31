@@ -112,6 +112,15 @@ Credentials are saved to the encrypted config database — no need to SSH in and
 
 ### Critical Deployment Notes
 
+> **Two dashboard instances exist — deploy to the correct one!**
+>
+> | Domain | LXC IP | App entry point | Deploy path |
+> |--------|--------|-----------------|-------------|
+> | `report.<YOUR_DOMAIN>` | <LXC_IP> (CT 204) | `dashboard_backend:app` | `/opt/soc-dashboard/` |
+> | `sec.<YOUR_DOMAIN>` | <PROD_IP> | `src.app:app` | `/opt/dashboard/src/` |
+>
+> Files in **this workspace** (`dashboard_backend.py`, `soc-dashboard-live.html`, `auth.py`, `fetch_live_data.py`) are for the **report** instance (<LXC_IP>). Do **not** SCP them to <PROD_IP> — that server uses a different `src/` package codebase with Jinja templates.
+
 **Database path:** The `DB_PATH` environment variable must be set in `.env` to `/var/lib/soc-dashboard/soc_dashboard.db`. If the systemd `WorkingDirectory` is wrong and `DB_PATH` is unset, a new empty DB gets created in the wrong location.
 
 **Encryption key:** `config_manager.py` auto-generates a Fernet key on first run. **Never delete `.encryption_key`** — all encrypted settings in the DB become unreadable.
@@ -165,8 +174,19 @@ ssh root@<LXC_IP> 'systemctl restart dashboard'
 | Microsoft Graph | `SecurityIncident.ReadWrite.All` | Application | Assign/escalate incidents |
 | Microsoft Graph | `SecurityEvents.Read.All` | Application | Read security events / Secure Score |
 | Microsoft Graph | `User.Read.All` | Application | User lookup |
-| Microsoft Graph | `Mail.Send` | Application | Escalation email notifications |
 | Microsoft Graph | `ThreatIntelligence.Read.All` | Application | MDTI articles *(optional — requires Defender TI license)* |
+
+### Required Delegated Permissions
+
+| API | Permission | Type | Purpose |
+|-----|-----------|------|---------|
+| Microsoft Graph | `User.Read` | Delegated | User profile during login |
+| Microsoft Graph | `Mail.Send` | Delegated | Escalation email (sent from user's own mailbox) |
+
+> **Note:** `Mail.Send` is **delegated** (not application). The app can only send email as the
+> currently logged-in user — it cannot send as arbitrary users. Users consent to this scope
+> on first login. If admin consent is required in your tenant, grant it in Entra → App
+> registrations → API permissions.
 
 After adding permissions, **grant admin consent** — requires Global Administrator or Privileged Role Administrator.
 

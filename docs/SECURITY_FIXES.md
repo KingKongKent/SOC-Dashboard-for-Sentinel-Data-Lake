@@ -18,6 +18,7 @@ Discovered vulnerabilities, patches applied, and status.
 | 8 | **LOW** | hourly_refresh.py | No fetch timeout — hanging API call blocks scheduler indefinitely | **PATCHED** |
 | 9 | **HIGH** | dashboard_backend.py | No authentication — anyone on the network can access all SOC data | **PATCHED** |
 | 10 | **MEDIUM** | fetch_live_data.py | Credentials stored in plaintext .env only — no encrypted storage option | **PATCHED** |
+| 11 | **MEDIUM** | fetch_live_data.py | `Mail.Send` as application permission — tenant-wide send-as-any-user | **PATCHED** |
 
 ---
 
@@ -93,6 +94,21 @@ return jsonify({'error': 'Failed to retrieve database statistics'}), 500
 
 **Risk:** Misleading version table from GitHub template.  
 **Fix:** Replaced with project-specific security policy.
+
+### 11. Mail.Send over-permission (MEDIUM)
+
+**Risk:** `Mail.Send` was configured as an **application** permission (client_credentials flow). This
+granted the app the ability to call `POST /users/{any-oid}/sendMail` for any user in the tenant —
+far broader than needed for escalation notifications.  
+**Fix:**
+- Removed application-level `Mail.Send` permission.
+- Added `Mail.Send` as a **delegated** permission, consented at user login.
+- `graph_send_mail()` now accepts a delegated token and calls `POST /me/sendMail` — can only send
+  as the currently logged-in user.
+- MSAL token cache is persisted in the Flask session so `acquire_token_silent()` can retrieve the
+  user's delegated access token when the escalation email fires.
+- If the delegated token is unavailable, the escalation still succeeds (severity bump + tag +
+  comment + DB update); only the email is skipped with a warning log.
 
 ### 7. Missing security headers (MEDIUM)
 

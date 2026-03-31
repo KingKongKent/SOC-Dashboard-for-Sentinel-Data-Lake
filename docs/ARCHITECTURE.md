@@ -105,12 +105,15 @@ sequenceDiagram
     Browser->>Flask: GET /auth/callback?code=XXX
     Flask->>Entra: Exchange code for tokens (MSAL)
     Entra-->>Flask: id_token + access_token
+    Note right of Flask: Token cache persisted in session<br/>for delegated Mail.Send
     Flask-->>Browser: Set session cookie, redirect to /
 ```
 
 - Multi-tenant: authority = `https://login.microsoftonline.com/common`
+- Delegated scopes: `User.Read`, `Mail.Send` — consented at login
 - Admin access: Entra app role (configurable name, default `Admin`) checked by `@require_admin` decorator
 - Sessions: Flask-Session (filesystem), 8-hour lifetime, SameSite=Lax
+- Escalation email: sent via `/me/sendMail` using the user's delegated token (not client_credentials) — the app can only send as the logged-in user
 
 ### Backend API Auth (Client Credentials — Machine-to-Machine)
 

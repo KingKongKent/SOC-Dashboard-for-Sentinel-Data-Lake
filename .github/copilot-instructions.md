@@ -54,6 +54,11 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 - CSP headers are set via Flask `@app.after_request` — if adding new external resources, update the CSP policy in `dashboard_backend.py`.
 
 ### Deployment / LXC
+- **TWO SEPARATE DASHBOARD INSTANCES exist — deploy to the correct one:**
+  - `sec.<YOUR_DOMAIN>` → **<PROD_IP>** — production `src/` package app (`src.app:app`), Jinja templates, path `/opt/dashboard/`
+  - `report.<YOUR_DOMAIN>` → **<LXC_IP>** (CT 204) — original single-page app (`dashboard_backend:app`), path `/opt/soc-dashboard/`
+  - The two codebases are **structurally different** — files from this workspace (`dashboard_backend.py`, `soc-dashboard-live.html`, `auth.py`, `fetch_live_data.py`) belong on **<LXC_IP> (`/opt/soc-dashboard/`)**, NOT on <PROD_IP>.
+  - **Always verify the target LXC IP and path before SCP.** Deploying workspace files to the wrong server won't break it (gunicorn loads `src.app:app` on `.50`), but leaves stray files that cause confusion.
 - **Proxy protocol required**: CT 204 (<LXC_IP>) nginx expects a PROXY protocol preamble from upstream. Direct connections (bypassing the proxy at <PROXY_IP>) cause `ERR_CONNECTION_RESET`.
 - **DNS must point to proxy**: Pi-hole DNS for `report.<YOUR_DOMAIN>` must resolve to `<PROXY_IP>` (www-proxy), **NOT** `<LXC_IP>` (the LXC directly).
 - **gunicorn required for production**: Flask's dev server is single-threaded and not suitable for production. Always use gunicorn via `dashboard.service`.
