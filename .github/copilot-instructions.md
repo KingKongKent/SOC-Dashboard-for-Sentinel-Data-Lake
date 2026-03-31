@@ -30,7 +30,7 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 ### SQLite
 - SQLite has no concurrent-write support. Running gunicorn workers + hourly-refresh timer simultaneously can cause `database is locked` errors under load. Consider enabling WAL mode (`PRAGMA journal_mode=WAL`) if this occurs.
 - Append-only model: the `INSERT OR REPLACE` pattern in `insert_incident()` replaces the full row on ID collision — entity children are re-inserted without cleaning up old ones first (potential duplicates in `entities` table).
-- The SQLite DB path is **relative** (`soc_dashboard.db`). If systemd `WorkingDirectory` is wrong, a new empty DB gets created in a random location. Always verify `WorkingDirectory=/opt/soc-dashboard` in service units.
+- The SQLite DB path is **relative** (`soc_dashboard.db`). If systemd `WorkingDirectory` is set incorrectly, a new empty DB gets created in a random location. Always verify the `WorkingDirectory` in your service units.
 
 ### Microsoft Graph / Entra ID
 - The OAuth2 token URL uses `TENANT_ID` which must be a GUID, not a domain name.
@@ -50,22 +50,14 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 - `SECRET_KEYS` frozenset determines which values get Fernet encryption in the DB.
 
 ### Frontend
-- `soc-dashboard-live.html` loads Chart.js from CDN (`cdn.jsdelivr.net`) — if the CDN is blocked or down (e.g., DMZ network-restricted LXC), charts won't render. Bundle Chart.js locally as fallback.
+- `soc-dashboard-live.html` loads Chart.js from CDN (`cdn.jsdelivr.net`) — if the CDN is blocked or down (e.g., restricted network), charts won't render. Bundle Chart.js locally as fallback.
 - CSP headers are set via Flask `@app.after_request` — if adding new external resources, update the CSP policy in `dashboard_backend.py`.
 
-### Deployment / LXC
-- **TWO SEPARATE DASHBOARD INSTANCES exist — deploy to the correct one:**
-  - `sec.<YOUR_DOMAIN>` → **<PROD_IP>** — production `src/` package app (`src.app:app`), Jinja templates, path `/opt/dashboard/`
-  - `report.<YOUR_DOMAIN>` → **<LXC_IP>** (CT 204) — original single-page app (`dashboard_backend:app`), path `/opt/soc-dashboard/`
-  - The two codebases are **structurally different** — files from this workspace (`dashboard_backend.py`, `soc-dashboard-live.html`, `auth.py`, `fetch_live_data.py`) belong on **<LXC_IP> (`/opt/soc-dashboard/`)**, NOT on <PROD_IP>.
-  - **Always verify the target LXC IP and path before SCP.** Deploying workspace files to the wrong server won't break it (gunicorn loads `src.app:app` on `.50`), but leaves stray files that cause confusion.
-- **Proxy protocol required**: CT 204 (<LXC_IP>) nginx expects a PROXY protocol preamble from upstream. Direct connections (bypassing the proxy at <PROXY_IP>) cause `ERR_CONNECTION_RESET`.
-- **DNS must point to proxy**: Pi-hole DNS for `report.<YOUR_DOMAIN>` must resolve to `<PROXY_IP>` (www-proxy), **NOT** `<LXC_IP>` (the LXC directly).
-- **gunicorn required for production**: Flask's dev server is single-threaded and not suitable for production. Always use gunicorn via `dashboard.service`.
-- **`.env` file permissions**: Must be `chmod 600` and owned by the `socdash` service user. `deploy_lxc.sh` sets this, but manual edits can reset permissions.
-- **certbot ACME challenge**: Needs HTTP :80 traffic for `report.<YOUR_DOMAIN>` forwarded from the proxy to CT 204. Without this, certificate renewal fails silently.
-- No rate limiting on API endpoints.
-- No authentication on the dashboard itself — anyone who can reach the proxy can see all data. Access is controlled by network segmentation (DMZ) only.
+### Deployment
+- **gunicorn required for production**: Flask's dev server is single-threaded and not suitable for production. Always use gunicorn via systemd service.
+- **`.env` file permissions**: Must be `chmod 600` and owned by the service user. `deploy_lxc.sh` sets this, but manual edits can reset permissions.
+- If using a reverse proxy with proxy protocol, direct connections (bypassing the proxy) will cause connection resets — always access through the proxy or DNS.
+- See `.github/copilot-instructions.local.md` (gitignored) for environment-specific deployment details.
 
 ## Code Conventions
 

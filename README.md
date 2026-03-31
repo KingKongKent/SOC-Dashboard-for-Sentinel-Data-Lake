@@ -112,14 +112,10 @@ Credentials are saved to the encrypted config database — no need to SSH in and
 
 ### Critical Deployment Notes
 
-> **Two dashboard instances exist — deploy to the correct one!**
->
-> | Domain | LXC IP | App entry point | Deploy path |
-> |--------|--------|-----------------|-------------|
-> | `report.<YOUR_DOMAIN>` | <LXC_IP> (CT 204) | `dashboard_backend:app` | `/opt/soc-dashboard/` |
-> | `sec.<YOUR_DOMAIN>` | <PROD_IP> | `src.app:app` | `/opt/dashboard/src/` |
->
-> Files in **this workspace** (`dashboard_backend.py`, `soc-dashboard-live.html`, `auth.py`, `fetch_live_data.py`) are for the **report** instance (<LXC_IP>). Do **not** SCP them to <PROD_IP> — that server uses a different `src/` package codebase with Jinja templates.
+> **If running multiple dashboard instances, deploy to the correct one!**
+> Keep a local record of which domain maps to which server and app entry point.
+> Files in **this workspace** are for the single-page `dashboard_backend:app` variant.
+> Do **not** deploy them to a server running the `src/` package codebase.
 
 **Database path:** The `DB_PATH` environment variable must be set in `.env` to `/var/lib/soc-dashboard/soc_dashboard.db`. If the systemd `WorkingDirectory` is wrong and `DB_PATH` is unset, a new empty DB gets created in the wrong location.
 
