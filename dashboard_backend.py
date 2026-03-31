@@ -489,11 +489,13 @@ def escalate_incident(incident_id):
     category = body.get('category', '')
     notes = body.get('notes', '')
     reason = f'{category}. {notes}'.strip(' .') if category else (notes or 'No reason provided')
+    # Graph API max severity is 'high' — map 'critical' for the API call
+    graph_severity = 'high' if severity == 'critical' else severity
 
     try:
         # 1. Bump severity + tag
         graph_patch_incident(incident_id, {
-            'severity': severity,
+            'severity': graph_severity,
             'customTags': ['Escalated'],
         })
         # 2. Comment
