@@ -24,7 +24,7 @@ def _cfg(key: str, default: str = '') -> str:
     return os.getenv(key, default).strip()
 
 
-SCOPES = ['User.Read', 'Mail.Send']
+SCOPES = ['User.Read', 'Mail.Send', 'ChannelMessage.Send']
 
 
 def _get_authority() -> str:

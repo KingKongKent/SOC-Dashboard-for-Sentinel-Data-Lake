@@ -136,6 +136,149 @@ def graph_send_mail(token: str, subject: str, html_body: str,
     resp.raise_for_status()
 
 
+def send_teams_channel_escalation(channel_config: str, incident_id: str,
+                                  severity: str, escalated_by: str,
+                                  category: str, notes: str,
+                                  access_token: str | None = None) -> None:
+    """Post an escalation notification to a Teams channel via Graph API.
+
+    *channel_config* must be 'teamId/channelId'.
+    Uses the caller-supplied delegated token (ChannelMessage.Send scope).
+    Falls back to app-only token if no delegated token is provided.
+    """
+    parts = channel_config.split('/', 1)
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError('TEAMS_CHANNEL_ID must be teamId/channelId')
+    team_id, channel_id = parts
+
+    token = access_token or get_graph_access_token()
+    if not token:
+        raise RuntimeError('Could not obtain Graph token for Teams channel post')
+
+    defender_url = f'https://security.microsoft.com/incidents/{incident_id}'
+    html = (
+        f'<h2>\u26a0\ufe0f Incident {incident_id} Escalated</h2>'
+        f'<table>'
+        f'<tr><td><b>Severity</b></td><td>{severity}</td></tr>'
+        f'<tr><td><b>Escalated by</b></td><td>{escalated_by}</td></tr>'
+        f'<tr><td><b>Category</b></td><td>{category or "N/A"}</td></tr>'
+        f'<tr><td><b>Notes</b></td><td>{notes or "N/A"}</td></tr>'
+        f'</table>'
+        f'<a href="{defender_url}">Open in Defender Portal</a>'
+    )
+
+    url = f'{GRAPH_API_BASE}/teams/{team_id}/channels/{channel_id}/messages'
+    resp = requests.post(url, json={'body': {'contentType': 'html', 'content': html}},
+                         headers={'Authorization': f'Bearer {token}',
+                                  'Content-Type': 'application/json'},
+                         timeout=15)
+    resp.raise_for_status()
+
+
+# ── Teams Webhook Escalation ────────────────────────────────────────────────
+
+import re as _re
+
+_WEBHOOK_DOMAINS = (
+    '.webhook.office.com',        # Classic Incoming Webhooks
+    '.logic.azure.com',           # Power Automate (Logic Apps connector)
+    '.api.powerplatform.com',     # Power Automate Workflows connector
+)
+
+_WEBHOOK_URL_RE = _re.compile(
+    r'^https://[\w\-.]+\.'
+    r'(?:webhook\.office\.com|logic\.azure\.com|api\.powerplatform\.com)'
+    r'(?::\d+)?'
+    r'/[\w\-/.?&=%:@+]+$'
+)
+
+
+def _is_valid_teams_webhook(url: str) -> bool:
+    """Return True if *url* looks like a legitimate Teams/Power Automate webhook."""
+    return bool(_WEBHOOK_URL_RE.match(url))
+
+
+def _is_workflows_url(url: str) -> bool:
+    """Return True if *url* is a Power Automate Workflows connector."""
+    return '.api.powerplatform.com' in url or '.logic.azure.com' in url
+
+
+def send_teams_webhook_escalation(webhook_url: str, incident_id: str,
+                                  severity: str, escalated_by: str,
+                                  category: str, notes: str) -> None:
+    """Post an escalation notification to Teams via a webhook URL.
+
+    Supports:
+      - Power Automate Workflows (*.api.powerplatform.com, *.logic.azure.com)
+        → sends raw Adaptive Card JSON
+      - Classic Incoming Webhooks (*.webhook.office.com)
+        → sends O365 MessageCard
+    """
+    if not _is_valid_teams_webhook(webhook_url):
+        raise ValueError(
+            'Invalid Teams webhook URL. Must be *.webhook.office.com, '
+            '*.logic.azure.com, or *.api.powerplatform.com')
+
+    defender_url = f'https://security.microsoft.com/incidents/{incident_id}'
+
+    if _is_workflows_url(webhook_url):
+        # Power Automate Workflows expect a raw Adaptive Card
+        payload = {
+            'type': 'message',
+            'attachments': [{
+                'contentType': 'application/vnd.microsoft.card.adaptive',
+                'content': {
+                    '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',
+                    'type': 'AdaptiveCard',
+                    'version': '1.4',
+                    'body': [
+                        {'type': 'TextBlock', 'size': 'Medium', 'weight': 'Bolder',
+                         'text': f'\u26a0\ufe0f Incident {incident_id} Escalated',
+                         'style': 'heading'},
+                        {'type': 'FactSet', 'facts': [
+                            {'title': 'Severity', 'value': severity},
+                            {'title': 'Escalated by', 'value': escalated_by},
+                            {'title': 'Category', 'value': category or 'N/A'},
+                            {'title': 'Notes', 'value': notes or 'N/A'},
+                        ]},
+                    ],
+                    'actions': [
+                        {'type': 'Action.OpenUrl', 'title': 'Open in Defender Portal',
+                         'url': defender_url},
+                    ],
+                },
+            }],
+        }
+    else:
+        # Classic Incoming Webhook — O365 MessageCard
+        payload = {
+            '@type': 'MessageCard',
+            '@context': 'http://schema.org/extensions',
+            'themeColor': 'FF0000',
+            'summary': f'Incident {incident_id} Escalated',
+            'sections': [{
+                'activityTitle': f'\u26a0\ufe0f Incident {incident_id} Escalated',
+                'facts': [
+                    {'name': 'Severity', 'value': severity},
+                    {'name': 'Escalated by', 'value': escalated_by},
+                    {'name': 'Category', 'value': category or 'N/A'},
+                    {'name': 'Notes', 'value': notes or 'N/A'},
+                ],
+                'markdown': True,
+            }],
+            'potentialAction': [{
+                '@type': 'OpenUri',
+                'name': 'Open in Defender Portal',
+                'targets': [{'os': 'default', 'uri': defender_url}],
+            }],
+        }
+
+    resp = requests.post(webhook_url, json=payload,
+                         headers={'Content-Type': 'application/json'},
+                         timeout=15)
+    resp.raise_for_status()
+
+
 def fetch_mdti_articles(access_token):
     """
     Fetch real Microsoft Defender Threat Intelligence articles from Graph API
@@ -246,6 +389,25 @@ def _map_graph_incident(inc: dict) -> dict:
 
 def _map_graph_alert(alert: dict, incident_id: str) -> dict:
     """Map a Graph Security alert to our internal schema."""
+    # Extract evidence items
+    evidence = []
+    for ev in alert.get('evidence', []):
+        etype = ev.get('@odata.type', '').split('.')[-1].replace('Evidence', '')
+        ename = (ev.get('userAccount', {}).get('accountName') or
+                 ev.get('deviceDnsName') or
+                 ev.get('ipAddress') or
+                 ev.get('fileName') or
+                 ev.get('url') or
+                 ev.get('domainName') or
+                 ev.get('displayName') or '')
+        if ename:
+            evidence.append({
+                'type': etype or 'Unknown',
+                'name': ename,
+                'verdict': ev.get('verdict', 'unknown'),
+                'remediationStatus': ev.get('remediationStatus', ''),
+            })
+
     return {
         'id': alert.get('id', ''),
         'incidentId': incident_id,
@@ -256,6 +418,16 @@ def _map_graph_alert(alert: dict, incident_id: str) -> dict:
         'product': alert.get('serviceSource', 'Microsoft Defender XDR'),
         'timestamp': alert.get('createdDateTime', ''),
         'detectionSource': alert.get('detectionSource', 'Unknown'),
+        'description': alert.get('description', ''),
+        'evidence': evidence,
+        'mitreTechniques': alert.get('mitreTechniques') or [],
+        'actorDisplayName': alert.get('actorDisplayName', ''),
+        'threatDisplayName': alert.get('threatDisplayName', ''),
+        'threatFamilyName': alert.get('threatFamilyName', ''),
+        'classification': alert.get('classification', ''),
+        'determination': alert.get('determination', ''),
+        'alertWebUrl': alert.get('alertWebUrl', ''),
+        'recommendedActions': alert.get('recommendedActions', ''),
     }
 
 
@@ -482,7 +654,8 @@ def fetch_defender_alerts_list(incidents) -> list:
                     'SecurityAlert '
                     '| where TimeGenerated > ago(30d) '
                     '| project AlertName, AlertSeverity, Status, ProviderName, '
-                    '  TimeGenerated, SystemAlertId '
+                    '  TimeGenerated, SystemAlertId, Description, Tactics, '
+                    '  Entities, RemediationSteps, CompromisedEntity '
                     '| order by TimeGenerated desc '
                     '| take 500'
                 )
@@ -500,9 +673,33 @@ def fetch_defender_alerts_list(incidents) -> list:
                     inc_ids = {i['id'] for i in incidents}
                     for row in rows:
                         r = dict(zip(cols, row))
+                        # Parse entities JSON string from Sentinel
+                        evidence = []
+                        try:
+                            raw_entities = json.loads(r.get('Entities') or '[]')
+                            for ent in raw_entities:
+                                etype = ent.get('Type', 'Unknown')
+                                ename = (ent.get('HostName') or ent.get('Address') or
+                                         ent.get('Name') or ent.get('Url') or
+                                         ent.get('DomainName') or ent.get('AccountName') or '')
+                                if ename:
+                                    evidence.append({'type': etype, 'name': ename, 'verdict': 'unknown'})
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        # Parse tactics into MITRE techniques list
+                        tactics_raw = r.get('Tactics') or ''
+                        mitre = [t.strip() for t in tactics_raw.split(',') if t.strip()]
+                        # Parse remediation steps
+                        rec_actions = ''
+                        try:
+                            steps = json.loads(r.get('RemediationSteps') or '[]')
+                            if isinstance(steps, list):
+                                rec_actions = '\n'.join(s for s in steps if s)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
                         alerts.append({
                             'id': r.get('SystemAlertId', ''),
-                            'incidentId': '',  # Sentinel alerts don't always link directly
+                            'incidentId': '',
                             'title': r.get('AlertName', 'Alert'),
                             'severity': (r.get('AlertSeverity') or 'Medium').capitalize(),
                             'status': r.get('Status', 'New'),
@@ -510,6 +707,17 @@ def fetch_defender_alerts_list(incidents) -> list:
                             'product': r.get('ProviderName', 'Microsoft Sentinel'),
                             'timestamp': r.get('TimeGenerated', ''),
                             'detectionSource': r.get('ProviderName', 'Sentinel'),
+                            'description': r.get('Description', ''),
+                            'evidence': evidence,
+                            'mitreTechniques': mitre,
+                            'actorDisplayName': '',
+                            'threatDisplayName': '',
+                            'threatFamilyName': '',
+                            'classification': '',
+                            'determination': '',
+                            'alertWebUrl': '',
+                            'recommendedActions': rec_actions,
+                            'compromisedEntity': r.get('CompromisedEntity', ''),
                         })
                     if alerts:
                         print(f"  ✅ Fetched {len(alerts)} alerts from Sentinel KQL")

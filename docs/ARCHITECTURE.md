@@ -114,6 +114,7 @@ sequenceDiagram
 - Admin access: Entra app role (configurable name, default `Admin`) checked by `@require_admin` decorator
 - Sessions: Flask-Session (filesystem), 8-hour lifetime, SameSite=Lax
 - Escalation email: sent via `/me/sendMail` using the user's delegated token (not client_credentials) — the app can only send as the logged-in user
+- Escalation Teams notification: sent via Microsoft Teams Incoming Webhook or Power Automate Workflows connector (`TEAMS_WEBHOOK_URL` config). Adaptive Card format with incident details and Defender Portal link. No OAuth required — webhook URL is treated as a secret and encrypted at rest.
 
 ### Backend API Auth (Client Credentials — Machine-to-Machine)
 

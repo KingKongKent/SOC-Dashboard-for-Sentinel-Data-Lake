@@ -5,6 +5,13 @@
 # Creates:
 #   dashboard.service   — gunicorn serving the Flask app
 #   hourly-refresh.service + hourly-refresh.timer — scheduled data fetch
+#
+# FHS layout:
+#   /opt/soc-dashboard/      — app code (ReadOnly)
+#   /usr/local/soc-venv/     — Python venv (ReadOnly)
+#   /etc/soc-dashboard/.env  — config (EnvironmentFile)
+#   /var/lib/soc-dashboard/  — DB + sessions (ReadWrite)
+#   /var/log/soc-dashboard/  — gunicorn logs (ReadWrite)
 # =============================================================
 
 set -euo pipefail
@@ -12,7 +19,9 @@ set -euo pipefail
 APP_DIR="/opt/soc-dashboard"
 APP_USER="socdash"
 DB_DIR="/var/lib/soc-dashboard"
-VENV_DIR="${APP_DIR}/venv"
+VENV_DIR="/usr/local/soc-venv"
+CONF_DIR="/etc/soc-dashboard"
+LOG_DIR="/var/log/soc-dashboard"
 WORKERS=2
 
 # ── Dashboard (gunicorn) service ────────────────
@@ -27,13 +36,13 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
 Environment=PATH=${VENV_DIR}/bin:/usr/bin
-EnvironmentFile=${APP_DIR}/.env
+EnvironmentFile=${CONF_DIR}/.env
 ExecStart=${VENV_DIR}/bin/gunicorn \
     --workers ${WORKERS} \
     --bind 127.0.0.1:5000 \
     --timeout 120 \
-    --access-logfile - \
-    --error-logfile - \
+    --access-logfile ${LOG_DIR}/access.log \
+    --error-logfile ${LOG_DIR}/error.log \
     dashboard_backend:app
 Restart=always
 RestartSec=5
@@ -43,7 +52,9 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=${DB_DIR}
+ReadWritePaths=${LOG_DIR}
 ReadOnlyPaths=${APP_DIR}
+ReadOnlyPaths=${VENV_DIR}
 PrivateTmp=true
 
 [Install]
@@ -63,7 +74,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
 Environment=PATH=${VENV_DIR}/bin:/usr/bin
-EnvironmentFile=${APP_DIR}/.env
+EnvironmentFile=${CONF_DIR}/.env
 ExecStart=${VENV_DIR}/bin/python ${APP_DIR}/append_data.py
 TimeoutStartSec=600
 StandardOutput=journal

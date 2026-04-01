@@ -343,7 +343,7 @@
             color: #555;
             margin-bottom: 4px;
         }
-        .settings-field input {
+        .settings-field input:not([type="checkbox"]) {
             width: 100%;
             padding: 9px 12px;
             border: 1px solid #ddd;
@@ -352,10 +352,15 @@
             font-family: 'Segoe UI', sans-serif;
             transition: border-color 0.2s;
         }
-        .settings-field input:focus {
+        .settings-field input:not([type="checkbox"]):focus {
             outline: none;
             border-color: #0078d4;
             box-shadow: 0 0 0 2px rgba(0,120,212,0.15);
+        }
+        .settings-field label input[type="checkbox"] {
+            margin-right: 6px;
+            vertical-align: middle;
+            width: auto;
         }
         .settings-field small {
             color: #999;
@@ -528,13 +533,13 @@
                     <div class="kpi-value" style="color: #c62828;" id="vtDetections">--</div>
                     <small style="color: #666;">Malicious files</small>
                 </div>
-                <div class="kpi-card clickable" onclick="showThreatIntelDetails('talos')" title="Click to view Talos threat score details">
+                <div class="kpi-card clickable" onclick="showThreatIntelDetails('talos')" title="Click to view environment threat score details">
                     <div class="kpi-header">
-                        <span class="kpi-title">Talos Threat Score</span>
+                        <span class="kpi-title">Environment Threat Score</span>
                         <span class="kpi-icon">📊</span>
                     </div>
                     <div class="kpi-value" style="color: #388e3c;" id="talosThreatScore">--</div>
-                    <small style="color: #666;">Lower is better</small>
+                    <small style="color: #666;">Derived from incidents</small>
                 </div>
             </div>
 
@@ -789,15 +794,42 @@
 
             <div class="settings-section">
                 <h3>🔔 Escalation Notifications</h3>
-                <div class="settings-field">
-                    <label>Escalation Email</label>
-                    <input type="text" id="cfg_ESCALATION_EMAIL" placeholder="soc-team@yourdomain.com">
-                    <small>Comma-separated. Sent from the analyst's mailbox (requires Mail.Send).</small>
+                <small style="display:block;margin-bottom:12px;color:#94a3b8">Select which notification methods fire when an analyst escalates an incident.</small>
+
+                <!-- Email -->
+                <div class="settings-field" style="margin-bottom:2px">
+                    <label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" id="esc_method_email" onchange="toggleEscMethod('email')"> 📧 Email</label>
                 </div>
-                <div class="settings-field">
-                    <label>Teams Channel ID</label>
-                    <input type="text" id="cfg_TEAMS_CHANNEL_ID" placeholder="teamId/channelId">
-                    <small>Format: <code>teamId/channelId</code> — escalation messages posted via Graph API. Requires <code>ChannelMessage.Send</code> app permission.</small>
+                <div id="esc_panel_email" style="display:none;padding-left:24px;margin-bottom:12px">
+                    <div class="settings-field">
+                        <label>Escalation Email</label>
+                        <input type="text" id="cfg_ESCALATION_EMAIL" placeholder="soc-team@yourdomain.com">
+                        <small>Comma-separated. Sent from the analyst's mailbox (requires Mail.Send).</small>
+                    </div>
+                </div>
+
+                <!-- Teams Graph API -->
+                <div class="settings-field" style="margin-bottom:2px">
+                    <label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" id="esc_method_teams_graph" onchange="toggleEscMethod('teams_graph')"> 💬 Teams (Graph API)</label>
+                </div>
+                <div id="esc_panel_teams_graph" style="display:none;padding-left:24px;margin-bottom:12px">
+                    <div class="settings-field">
+                        <label>Teams Channel ID</label>
+                        <input type="text" id="cfg_TEAMS_CHANNEL_ID" placeholder="teamId/channelId">
+                        <small>Format: <code>teamId/channelId</code> — posts as the logged-in user. Requires <code>ChannelMessage.Send</code> delegated permission.</small>
+                    </div>
+                </div>
+
+                <!-- Teams Webhook -->
+                <div class="settings-field" style="margin-bottom:2px">
+                    <label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" id="esc_method_teams_webhook" onchange="toggleEscMethod('teams_webhook')"> 🔗 Teams (Webhook)</label>
+                </div>
+                <div id="esc_panel_teams_webhook" style="display:none;padding-left:24px;margin-bottom:12px">
+                    <div class="settings-field">
+                        <label>Teams Webhook URL</label>
+                        <input type="password" id="cfg_TEAMS_WEBHOOK_URL" placeholder="https://...webhook.office.com/...">
+                        <small>Power Automate Workflows or classic Incoming Webhook URL. No Graph permissions needed.</small>
+                    </div>
                 </div>
             </div>
 
@@ -868,9 +900,22 @@
                         }
                     }
                 });
+                // Restore escalation method checkboxes
+                const methods = (cfg.ESCALATION_METHODS || 'email').split(',').map(m => m.trim().toLowerCase());
+                ['email', 'teams_graph', 'teams_webhook'].forEach(m => {
+                    const cb = document.getElementById('esc_method_' + m);
+                    if (cb) { cb.checked = methods.includes(m); }
+                    toggleEscMethod(m);
+                });
             } catch (e) {
                 console.error('Load settings error:', e);
             }
+        }
+
+        function toggleEscMethod(method) {
+            const cb = document.getElementById('esc_method_' + method);
+            const panel = document.getElementById('esc_panel_' + method);
+            if (cb && panel) { panel.style.display = cb.checked ? 'block' : 'none'; }
         }
 
         function closeSettings() {
@@ -880,7 +925,8 @@
         async function saveSettings() {
             const status = document.getElementById('settingsStatus');
             const keys = ['TENANT_ID','CLIENT_ID','CLIENT_SECRET','SENTINEL_WORKSPACE_ID','SENTINEL_WORKSPACE_NAME',
-                          'VIRUSTOTAL_API_KEY','REFRESH_INTERVAL_MINUTES','ESCALATION_EMAIL','TEAMS_CHANNEL_ID'];
+                          'VIRUSTOTAL_API_KEY','REFRESH_INTERVAL_MINUTES',
+                          'ESCALATION_EMAIL','TEAMS_CHANNEL_ID','TEAMS_WEBHOOK_URL'];
             const payload = {};
             keys.forEach(k => {
                 const input = document.getElementById('cfg_' + k);
@@ -891,6 +937,10 @@
                     if (val !== '') payload[k] = val;
                 }
             });
+            // Build ESCALATION_METHODS from checkboxes
+            const methods = ['email', 'teams_graph', 'teams_webhook']
+                .filter(m => { const cb = document.getElementById('esc_method_' + m); return cb && cb.checked; });
+            payload.ESCALATION_METHODS = methods.join(',') || '';
             try {
                 status.className = 'settings-status';
                 status.textContent = '';
@@ -2200,10 +2250,10 @@
                                        data.reputation === 'good' ? '#8BC34A' : 
                                        data.reputation === 'neutral' ? '#FF9800' : '#f44336';
                 content = `
-                    <h2>📊 Talos Threat Intelligence</h2>
+                    <h2>📊 Environment Threat Score</h2>
                     <div style="margin: 20px 0;">
                         <span class="status-badge" style="background: ${reputationColor};">Reputation: ${data.reputation.toUpperCase()}</span>
-                        <span class="status-badge" style="background: #666; margin-left: 8px;">Source: ${data.source}</span>
+                        <span class="status-badge" style="background: #ff9800; margin-left: 8px;">Derived from incidents</span>
                     </div>
                     
                     <div class="detail-section">
@@ -3523,8 +3573,19 @@
         function showIncidentById(id) {
             if (!window._allIncidents) return;
             const inc = window._allIncidents.find(i => String(i.id) === String(id));
-            if (inc) showIncidentDetail(inc);
+            if (inc) showIncidentDetails(inc);
             else alert(`Incident #${id} not found in current data`);
+        }
+
+        function _escalateFormDirty() {
+            return document.getElementById('escalateCategory').value !== '' ||
+                   document.getElementById('escalateNotes').value.trim() !== '';
+        }
+        function _caseFormDirty() {
+            return document.getElementById('caseTitle').value.trim() !== '' ||
+                   document.getElementById('caseDescription').value.trim() !== '' ||
+                   document.getElementById('caseAssignedTo').value.trim() !== '' ||
+                   document.getElementById('caseIncidentIds').value.trim() !== '';
         }
 
         // Close modal when clicking outside
@@ -3535,10 +3596,12 @@
             }
             const escModal = document.getElementById('escalateModal');
             if (event.target == escModal) {
+                if (_escalateFormDirty() && !confirm('Discard escalation form data?')) return;
                 cancelEscalation();
             }
             const caseM = document.getElementById('caseModal');
             if (event.target == caseM) {
+                if (_caseFormDirty() && !confirm('Discard case form data?')) return;
                 closeCaseModal();
             }
             const cdm = document.getElementById('caseDetailModal');

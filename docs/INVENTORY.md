@@ -21,8 +21,8 @@
 | File | Purpose |
 |------|---------|
 | `scripts/pre_commit_check.py` | Pre-commit scanner for leaked secrets and common vulns |
-| `scripts/deploy_lxc.sh` | Automated deployment to Ubuntu 24.04 LXC with env var validation |
-| `scripts/setup_systemd.sh` | Creates systemd units: dashboard.service + hourly-refresh.timer |
+| `scripts/deploy_lxc.sh` | Automated FHS-compliant deployment to Ubuntu 24.04 LXC (venv at `/usr/local/soc-venv`, config at `/etc/soc-dashboard/`, logs at `/var/log/soc-dashboard/`). Includes migration from old layout. |
+| `scripts/setup_systemd.sh` | Creates systemd units: dashboard.service + hourly-refresh.timer (FHS paths) |
 | `scripts/nginx_site.conf` | nginx reverse proxy config template (replace `YOUR_DOMAIN` before use) |
 | `scripts/setup_task_scheduler.ps1` | Creates a Windows Scheduled Task for hourly refresh |
 | `scripts/start_hourly_refresh.bat` | Simple batch launcher for `hourly_refresh.py` (Windows) |

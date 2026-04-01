@@ -19,6 +19,7 @@ SECRET_KEYS = frozenset({
     'TALOS_API_KEY',
     'ABUSEIPDB_API_KEY',
     'SECRET_KEY',
+    'TEAMS_WEBHOOK_URL',
 })
 
 # All configurable keys (shown on settings page)
@@ -40,6 +41,9 @@ CONFIGURABLE_KEYS = [
     'ADMIN_USERS',
     # Escalation
     'ESCALATION_EMAIL',
+    'TEAMS_CHANNEL_ID',
+    'TEAMS_WEBHOOK_URL',
+    'ESCALATION_METHODS',
 ]
 
 
@@ -84,6 +88,21 @@ def _decrypt(token: str) -> str:
     return _get_fernet().decrypt(token.encode()).decode()
 
 
+def _ensure_table() -> None:
+    """Create the config table if it doesn't exist yet."""
+    conn = sqlite3.connect(_get_db_path())
+    conn.execute(
+        'CREATE TABLE IF NOT EXISTS config ('
+        '  key TEXT PRIMARY KEY,'
+        '  value TEXT,'
+        '  is_encrypted INTEGER DEFAULT 0,'
+        '  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+        ')'
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── CRUD ────────────────────────────────────────
 
 def get_config(key: str, default: str | None = None) -> str | None:
@@ -92,6 +111,7 @@ def get_config(key: str, default: str | None = None) -> str | None:
     Decrypts transparently if the value is stored encrypted.
     """
     try:
+        _ensure_table()
         conn = sqlite3.connect(_get_db_path())
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -120,6 +140,7 @@ def set_config(key: str, value: str, encrypt: bool | None = None) -> None:
     stored = _encrypt(value) if encrypt else value
     is_enc = 1 if encrypt else 0
 
+    _ensure_table()
     conn = sqlite3.connect(_get_db_path())
     cur = conn.cursor()
     cur.execute(

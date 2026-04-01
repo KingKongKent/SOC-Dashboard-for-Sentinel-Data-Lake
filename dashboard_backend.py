@@ -25,8 +25,10 @@ try:
         fetch_secure_score, calculate_daily_alert_volume, get_last_incident_source,
         graph_patch_incident, graph_post_comment, graph_send_mail,
         send_teams_channel_escalation,
+        send_teams_webhook_escalation,
     )
     DB_AVAILABLE = True
+    init_database()
 except ImportError:
     print("⚠️  Database module not available, falling back to JSON mode")
     DB_AVAILABLE = False
@@ -223,7 +225,8 @@ def update_settings():
         'CLIENT_ID', 'CLIENT_SECRET', 'TENANT_ID',
         'SENTINEL_WORKSPACE_ID', 'SENTINEL_WORKSPACE_NAME',
         'VIRUSTOTAL_API_KEY', 'TALOS_API_KEY', 'ABUSEIPDB_API_KEY',
-        'REFRESH_INTERVAL_MINUTES', 'ESCALATION_EMAIL', 'TEAMS_CHANNEL_ID',
+        'REFRESH_INTERVAL_MINUTES', 'ESCALATION_EMAIL',
+        'TEAMS_CHANNEL_ID', 'TEAMS_WEBHOOK_URL', 'ESCALATION_METHODS',
     }
     updated = []
     for key, value in payload.items():
@@ -509,47 +512,66 @@ def escalate_incident(incident_id):
         # 3. Update local DB
         update_incident_field(incident_id, 'severity', severity.title())
 
-        # 4. Send email notification (delegated — from user's own mailbox)
-        escalation_email = get_config('ESCALATION_EMAIL') or ''
-        recipients = [r.strip() for r in escalation_email.split(',') if r.strip()]
-        if recipients:
-            user_token = get_user_token()
-            if user_token:
-                subject = f'[SOC] Incident {incident_id} Escalated — {severity.title()}'
-                html_body = (
-                    f'<h2>Incident {incident_id} Escalated</h2>'
-                    f'<p><b>Severity:</b> {severity.title()}</p>'
-                    f'<p><b>Escalated by:</b> {name} ({email})</p>'
-                    f'<p><b>Category:</b> {category or "N/A"}</p>'
-                    f'<p><b>Notes:</b> {notes or "N/A"}</p>'
-                    f'<p><a href="https://security.microsoft.com/incidents/{incident_id}">'
-                    f'Open in Defender Portal</a></p>'
-                )
-                try:
-                    graph_send_mail(user_token, subject, html_body, recipients)
-                    print(f'📧 Escalation email sent to {recipients}')
-                except Exception as mail_exc:
-                    print(f'⚠️  Escalation email failed: {mail_exc}')
-            else:
-                print('⚠️  No delegated token available — escalation email skipped')
+        # ── Notification dispatch ────────────────────────────────────────
+        methods_csv = get_config('ESCALATION_METHODS') or 'email'
+        enabled = {m.strip().lower() for m in methods_csv.split(',') if m.strip()}
+        user_token = get_user_token() if ('email' in enabled or 'teams_graph' in enabled) else None
 
-        # 5. Teams channel notification via Graph API (if configured)
-        teams_channel = get_config('TEAMS_CHANNEL_ID') or ''
-        if teams_channel.strip():
-            teams_token = get_user_token()
-            if teams_token:
+        # 4a. Email notification (delegated — from user's own mailbox)
+        if 'email' in enabled:
+            escalation_email = get_config('ESCALATION_EMAIL') or ''
+            recipients = [r.strip() for r in escalation_email.split(',') if r.strip()]
+            if recipients:
+                if user_token:
+                    subject = f'[SOC] Incident {incident_id} Escalated — {severity.title()}'
+                    html_body = (
+                        f'<h2>Incident {incident_id} Escalated</h2>'
+                        f'<p><b>Severity:</b> {severity.title()}</p>'
+                        f'<p><b>Escalated by:</b> {name} ({email})</p>'
+                        f'<p><b>Category:</b> {category or "N/A"}</p>'
+                        f'<p><b>Notes:</b> {notes or "N/A"}</p>'
+                        f'<p><a href="https://security.microsoft.com/incidents/{incident_id}">'
+                        f'Open in Defender Portal</a></p>'
+                    )
+                    try:
+                        graph_send_mail(user_token, subject, html_body, recipients)
+                        print(f'📧 Escalation email sent to {recipients}')
+                    except Exception as mail_exc:
+                        print(f'⚠️  Escalation email failed: {mail_exc}')
+                else:
+                    print('⚠️  No delegated token — email notification skipped')
+
+        # 4b. Teams Graph API notification (delegated — posts as user)
+        if 'teams_graph' in enabled:
+            teams_channel = get_config('TEAMS_CHANNEL_ID') or ''
+            if teams_channel.strip():
+                if user_token:
+                    try:
+                        send_teams_channel_escalation(
+                            teams_channel.strip(), incident_id,
+                            severity.title(), f'{name} ({email})',
+                            category, notes,
+                            access_token=user_token,
+                        )
+                        print(f'💬 Teams Graph API notification sent')
+                    except Exception as tg_exc:
+                        print(f'⚠️  Teams Graph API notification failed: {tg_exc}')
+                else:
+                    print('⚠️  No delegated token — Teams Graph notification skipped')
+
+        # 4c. Teams Webhook notification (no auth needed — URL contains token)
+        if 'teams_webhook' in enabled:
+            webhook_url = get_config('TEAMS_WEBHOOK_URL') or ''
+            if webhook_url.strip():
                 try:
-                    send_teams_channel_escalation(
-                        teams_channel.strip(), incident_id,
+                    send_teams_webhook_escalation(
+                        webhook_url.strip(), incident_id,
                         severity.title(), f'{name} ({email})',
                         category, notes,
-                        access_token=teams_token,
                     )
-                    print(f'💬 Teams escalation notification sent')
-                except Exception as teams_exc:
-                    print(f'⚠️  Teams escalation notification failed: {teams_exc}')
-            else:
-                print('⚠️  No delegated token available — Teams notification skipped')
+                    print(f'💬 Teams Webhook notification sent')
+                except Exception as tw_exc:
+                    print(f'⚠️  Teams Webhook notification failed: {tw_exc}')
 
         print(f'⚠️  Incident {incident_id} escalated by {email}')
         return jsonify({'success': True, 'severity': severity.title()})
@@ -563,8 +585,12 @@ def escalate_incident(incident_id):
 @app.route('/api/cases', methods=['GET'])
 @require_login
 def list_cases():
-    status = request.args.get('status')
-    return jsonify(get_cases(status))
+    try:
+        status = request.args.get('status')
+        return jsonify(get_cases(status))
+    except Exception as e:
+        print(f'❌ Failed to list cases: {e}')
+        return jsonify({'error': 'Failed to load cases'}), 500
 
 
 @app.route('/api/cases', methods=['POST'])
@@ -578,16 +604,20 @@ def create_case_route():
     priority = body.get('priority', 'Medium')
     if priority not in ('Very low', 'Low', 'Medium', 'High', 'Critical'):
         return jsonify({'error': 'Invalid priority'}), 400
-    case_id = create_case(
-        title=title,
-        priority=priority,
-        description=(body.get('description') or '').strip(),
-        assigned_to=(body.get('assigned_to') or '').strip(),
-        created_by=user.get('email', ''),
-        incident_ids=body.get('incident_ids'),
-    )
-    print(f'📁 Case #{case_id} created by {user.get("email", "?")}')
-    return jsonify({'success': True, 'case_id': case_id}), 201
+    try:
+        case_id = create_case(
+            title=title,
+            priority=priority,
+            description=(body.get('description') or '').strip(),
+            assigned_to=(body.get('assigned_to') or '').strip(),
+            created_by=user.get('email', ''),
+            incident_ids=body.get('incident_ids'),
+        )
+        print(f'📁 Case #{case_id} created by {user.get("email", "?")}')
+        return jsonify({'success': True, 'case_id': case_id}), 201
+    except Exception as e:
+        print(f'❌ Failed to create case: {e}')
+        return jsonify({'error': 'Failed to create case'}), 500
 
 
 @app.route('/api/cases/<int:case_id>', methods=['GET'])
@@ -608,9 +638,13 @@ def update_case_route(case_id):
         if field in body:
             updates[field] = body[field]
     incident_ids = body.get('incident_ids')  # None = don't touch, list = replace
-    if not update_case(case_id, updates, incident_ids):
-        return jsonify({'error': 'Case not found or no changes'}), 404
-    return jsonify({'success': True})
+    try:
+        if not update_case(case_id, updates, incident_ids):
+            return jsonify({'error': 'Case not found or no changes'}), 404
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f'❌ Failed to update case {case_id}: {e}')
+        return jsonify({'error': 'Failed to update case'}), 500
 
 
 @app.route('/api/cases/<int:case_id>', methods=['DELETE'])
