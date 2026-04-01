@@ -32,6 +32,8 @@ VULN_PATTERNS = [
     (r'pickle\.loads?\s*\(', "pickle.load — potential deserialization attack"),
     (r'yaml\.load\s*\(', "yaml.load without SafeLoader — code execution risk"),
     (r'subprocess\.call\s*\(.*shell\s*=\s*True', "subprocess with shell=True — command injection risk"),
+    (r'[Cc]:\\[Uu]sers\\[A-Za-z0-9._-]+\\', "Local Windows user path — do not commit machine-specific paths"),
+    (r'/home/[A-Za-z0-9._-]+/', "Local Linux home path — do not commit machine-specific paths"),
 ]
 
 SKIP_DIRS = {'.git', 'node_modules', '__pycache__', 'venv', 'env', '.venv'}
@@ -95,6 +97,8 @@ def main():
     issues = []
     for filepath in staged:
         if not filepath.exists() or filepath.suffix not in SCAN_EXTENSIONS:
+            continue
+        if filepath.name in SKIP_FILES:
             continue
 
         # Secret scan

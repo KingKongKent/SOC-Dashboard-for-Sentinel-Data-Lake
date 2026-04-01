@@ -51,12 +51,13 @@ MIGRATION_SUCCESS.md
 *.log
 logs/
 
-# ---- IDE ----
+# ---- IDE / Workspace ----
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.code-workspace
 
 # ---- OS ----
 .DS_Store
