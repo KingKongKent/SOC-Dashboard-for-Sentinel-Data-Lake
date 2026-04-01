@@ -4,15 +4,5 @@
 			"path": "."
 		}
 	],
-	"settings": {
-		"python.analysis.extraPaths": [
-			"c:\\Users\\REDACTED\\.vscode\\extensions\\ms-security.ms-sentinel-0.1.0\\python",
-			"c:\\Users\\REDACTED\\.vscode\\extensions\\ms-security.ms-sentinel-1.1.5\\python",
-			"c:\\Users\\REDACTED\\.vscode\\extensions\\ms-security.ms-sentinel-1.2.0\\python",
-			"c:\\Users\\REDACTED\\.vscode\\extensions\\ms-security.ms-sentinel-1.2.1\\python",
-			"c:\\Users\\REDACTED\\.vscode\\extensions\\ms-security.ms-sentinel-1.3.0\\python",
-			"c:\\Users\\REDACTED\\.vscode\\extensions\\ms-security.ms-sentinel-1.3.1\\python",
-			"c:\\Users\\REDACTED\\.vscode\\extensions\\ms-security.ms-sentinel-2.0.0\\python"
-		]
-	}
+	"settings": {}
 }
