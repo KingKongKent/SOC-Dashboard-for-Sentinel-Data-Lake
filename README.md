@@ -275,8 +275,9 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 | **Secure Score** | Live from Microsoft Graph API with category breakdown |
 | **Incidents** | Timeline filtering (7d–90d), severity & status filters, hide-redirected toggle |
 | **Incident Actions** | Assign to Me, Escalate (severity bump + email notification) — updates Defender XDR via Graph API |
+| **Local Case Tracking** | Per-incident notes, status tagging, and deep-link to Defender Cases portal |
 | **Alerts** | Linked to incidents, product and detection source breakdown |
-| **Threat Intel** | IOC extraction from incidents, VirusTotal, AbuseIPDB, MDTI articles |
+| **Threat Intel** | IOC extraction (IPs, URLs, users, files, devices) from incident entities, VirusTotal, AbuseIPDB, MDTI articles |
 | **Redirected Incidents** | Detected and labeled with target incident link; hidden by default to reduce noise |
 | **Admin Settings** | Web UI for managing API keys, refresh interval, escalation email |
 | **Encrypted Config** | Secrets stored with Fernet encryption in SQLite |
@@ -319,7 +320,8 @@ SOC-Dashboard/
 - All credentials via `.env` + `python-dotenv` — **never hardcoded**
 - Secrets encrypted at rest with Fernet in SQLite config table
 - `.gitignore` blocks `.env`, `*.key`, `*.pem`, `*secret*`, `*.db`
-- Pre-commit script scans for leaked secrets (`scripts/pre_commit_check.py`)
+- Pre-commit script scans for leaked secrets and local paths (`scripts/pre_commit_check.py`)
+- PII & infrastructure scan before commits (usernames, internal IPs, private domains)
 - CSP headers restrict script/style/font sources to `https://cdn.jsdelivr.net`
 - All routes auth-protected (`@require_login` for users, `@require_admin` for settings)
 - SQL queries use parameterized `?` placeholders — no f-strings in SQL
@@ -329,8 +331,8 @@ SOC-Dashboard/
 ## Technologies
 
 - **Frontend:** HTML5, CSS3, JavaScript, Chart.js 4.4.0
-- **Backend:** Python 3.10+, Flask 3.1, Flask-CORS, Flask-Session
-- **Auth:** MSAL 1.31 (Entra ID OAuth2 authorization code flow)
+- **Backend:** Python 3.10+, Flask 3.1.3, Flask-CORS, Flask-Session
+- **Auth:** MSAL 1.35 (Entra ID OAuth2 authorization code flow)
 - **Database:** SQLite3 with JSON data blobs
 - **Encryption:** cryptography (Fernet)
 - **Production server:** gunicorn (2 workers, systemd managed)
@@ -350,6 +352,10 @@ SOC-Dashboard/
 - [x] Incident actions (assign, escalate with email)
 - [x] Redirected incident detection and filtering
 - [x] First-run web setup wizard (no SSH required for initial config)
+- [x] Local case tracking with Defender Cases deep-link
+- [x] Improved entity/IOC extraction (IPs, URLs, users, files, devices)
+- [x] FHS-compliant deployment layout (noexec-safe `/opt`)
+- [x] PII & infrastructure leak prevention in pre-commit checks
 - [ ] WebSocket live streaming for instant updates
 - [ ] Multi-workspace support
 - [ ] Export incident reports to PDF/Excel
