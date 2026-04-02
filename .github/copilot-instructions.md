@@ -17,6 +17,7 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 8. **Run `scripts/pre_commit_check.py`** before every commit to scan for leaked secrets.
 9. **Before committing:** `git diff --cached | Select-String "token|secret|password|api.key"` to verify.
 10. **All routes must be auth-protected** — use `@require_login` for user routes, `@require_admin` for settings routes.
+11. **Scan for PII & infrastructure details before committing.** Run: `git diff --cached | Select-String "kehusvik|kents-events|192\.168\.7\.|@(?!example\.com|contoso\.com).*\.com"` — no real usernames, internal IPs, or private domains in committed code. Use `@example.com` / `@contoso.com` for placeholders.
 
 ## Known Pitfalls
 

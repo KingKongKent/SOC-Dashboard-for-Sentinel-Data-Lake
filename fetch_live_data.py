@@ -551,13 +551,66 @@ def _generate_demo_incidents() -> list:
         {"severity": "Medium", "status": "Resolved", "type": "Hacktool"},
     ]
 
+    # Realistic entity pools for demo data
+    _demo_ips = [
+        '185.220.101.34', '45.155.205.233', '91.240.118.172', '194.165.16.77',
+        '23.106.215.64', '103.253.41.98', '5.188.206.14', '162.247.74.27',
+        '198.98.56.149', '209.141.45.189', '80.82.77.139', '141.98.11.105',
+    ]
+    _demo_domains = [
+        'login-microsoftonline.tk', 'secure-update365.xyz', 'auth-verify.net',
+        'payload-delivery.ru', 'c2-callback.cn', 'exfil-data.top',
+    ]
+    _demo_urls = [
+        'https://login-microsoftonline.tk/oauth2/token',
+        'https://secure-update365.xyz/update.exe',
+        'http://payload-delivery.ru/stage2.ps1',
+    ]
+    _demo_files = [
+        'invoice_7291.exe', 'update_patch.dll', 'report_final.scr',
+        'readme.hta', 'meeting_notes.js',
+    ]
+    _demo_verdicts = ['malicious', 'suspicious', 'suspicious', 'unknown']
+
     incidents = []
     for i in range(100):
         t = templates[i % len(templates)]
         iid = 14021 + i
         days_ago = i // 4
         ts = datetime.now() - timedelta(days=days_ago, hours=random.randint(0, 23))
-        entities = [{'type': 'User', 'name': f'user{iid}@example.com', 'verdict': 'suspicious'}]
+
+        # Build realistic entities: always a user, plus IOC-type entities
+        entities = [{'type': 'user', 'name': f'user{iid}@contoso.com', 'verdict': 'suspicious'}]
+
+        # Add IP entity for most incidents
+        if i % 3 != 2:
+            entities.append({
+                'type': 'ip',
+                'name': random.choice(_demo_ips),
+                'verdict': random.choice(_demo_verdicts),
+            })
+        # Add domain entity for some incidents
+        if i % 4 == 0:
+            entities.append({
+                'type': 'mailbox',
+                'name': f'user{iid}@{random.choice(_demo_domains)}',
+                'verdict': random.choice(_demo_verdicts),
+            })
+        # Add URL entity for phishing/email incidents
+        if t['type'] in ('DLP', 'Multi-stage', 'AnonymousIP'):
+            entities.append({
+                'type': 'url',
+                'name': random.choice(_demo_urls),
+                'verdict': random.choice(_demo_verdicts),
+            })
+        # Add file entity for hacktool/multi-stage incidents
+        if t['type'] in ('Hacktool', 'Multi-stage', 'Discovery'):
+            entities.append({
+                'type': 'file',
+                'name': random.choice(_demo_files),
+                'verdict': random.choice(_demo_verdicts),
+            })
+
         incidents.append({
             'id': str(iid),
             'title': f"{t['type']} incident #{iid}",
@@ -839,188 +892,352 @@ def fetch_defender_alerts():
         'results': []  # Would contain actual alerts
     }
 
+def _build_demo_secure_score(source_label: str = 'demo') -> dict:
+    """Return realistic demo Secure Score data matching M365 structure."""
+    return {
+        'source': source_label,
+        'currentScore': 847.87,
+        'maxScore': 1528,
+        'percentage': 55.5,
+        'controlScores': [],
+        'categoryScores': [
+            {'name': 'Identity', 'current': 233.7, 'max': 339.0, 'percentage': 68.9, 'controlCount': 67},
+            {'name': 'Data', 'current': 8.0, 'max': 9.0, 'percentage': 88.9, 'controlCount': 4},
+            {'name': 'Device', 'current': 484.1, 'max': 940.0, 'percentage': 51.5, 'controlCount': 128},
+            {'name': 'Apps', 'current': 122.0, 'max': 240.0, 'percentage': 50.8, 'controlCount': 62},
+        ],
+        'recommendations': [],
+        'recommendationsByCategory': {},
+        'recentImprovements': [],
+        'actionCounts': {'toAddress': 0, 'riskAccepted': 0, 'resolved': 0, 'regressed': 0},
+        'trend': 0,
+        'history': [],
+    }
+
+
+# Deprecated product name → current name mapping
+# Longer keys MUST come before shorter ones to avoid partial replacement
+_PRODUCT_NAME_MAP = {
+    'Microsoft Defender Advanced Threat Protection': 'Microsoft Defender for Endpoint',
+    'Azure Advanced Threat Protection': 'Microsoft Defender for Identity',
+    'Office 365 Advanced Threat Protection': 'Microsoft Defender for Office 365',
+    'Microsoft Cloud App Security': 'Microsoft Defender for Cloud Apps',
+    'Microsoft Information Protection': 'Microsoft Purview Information Protection',
+    'Azure Information Protection': 'Microsoft Purview Information Protection',
+    'Azure Active Directory': 'Microsoft Entra ID',
+    'Windows Defender Antivirus': 'Microsoft Defender Antivirus',
+    'Microsoft Threat Protection': 'Microsoft Defender XDR',
+    'Microsoft 365 Defender': 'Microsoft Defender XDR',
+    'Azure Security Center': 'Microsoft Defender for Cloud',
+    'Microsoft Defender ATP': 'Microsoft Defender for Endpoint',
+    'Azure AD Identity Protection': 'Microsoft Entra ID Protection',
+    'Azure AD Conditional Access': 'Microsoft Entra Conditional Access',
+    'Azure AD PIM': 'Microsoft Entra Privileged Identity Management',
+    'Windows Defender ATP': 'Microsoft Defender for Endpoint',
+    'Office 365 ATP': 'Microsoft Defender for Office 365',
+    'AzureAD': 'Microsoft Entra ID',
+    'Azure AD': 'Microsoft Entra ID',
+    'Azure ATP': 'Microsoft Defender for Identity',
+    'O365 ATP': 'Microsoft Defender for Office 365',
+    'MDATP': 'Microsoft Defender for Endpoint',
+    'MCAS': 'Microsoft Defender for Cloud Apps',
+    'AAD': 'Microsoft Entra ID',
+    'AIP': 'Microsoft Purview Information Protection',
+}
+
+
+def _normalize_product_names(text: str) -> str:
+    """Replace deprecated Microsoft product names with current names."""
+    if not text:
+        return text
+    for old, new in _PRODUCT_NAME_MAP.items():
+        if old in text:
+            text = text.replace(old, new)
+    return text
+
+
 def fetch_secure_score():
     """
-    Fetch Microsoft Secure Score from Microsoft Graph API
-    Returns actual Secure Score data if credentials are configured
+    Fetch Microsoft Secure Score from Microsoft Graph API.
+    Cross-references secureScoreControlProfiles for accurate maxScore per control,
+    fetches 30-day history for trend, and computes action counts / recent improvements.
     """
     print("Fetching Secure Score from Microsoft Graph API...")
-    
+
     token = get_graph_access_token()
-    
+
     if not token:
         print("  📊 Using demo Secure Score (API credentials not available)")
-        return {
-            'source': 'demo',
-            'currentScore': 78.4,
-            'maxScore': 100,
-            'percentage': 78.4,
-            'controlScores': [
-                {'name': 'Identity', 'current': 85, 'max': 100},
-                {'name': 'Data', 'current': 72, 'max': 100},
-                {'name': 'Device', 'current': 80, 'max': 100},
-                {'name': 'Apps', 'current': 75, 'max': 100},
-                {'name': 'Infrastructure', 'current': 78, 'max': 100}
-            ],
-            'recommendations': []
-        }
-    
+        return _build_demo_secure_score('demo')
+
     try:
         headers = {
             'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json'
         }
-        
-        # Get current Secure Score
+
+        # ── 1. Fetch 30-day score history (latest first) ──────────────────
         response = requests.get(
             f'{GRAPH_API_BASE}/security/secureScores',
             headers=headers,
-            params={'$top': 1},
-            timeout=10
+            params={'$top': 30, '$orderby': 'createdDateTime desc'},
+            timeout=15
         )
         response.raise_for_status()
-        data = response.json()
-        
-        if data.get('value') and len(data['value']) > 0:
-            score = data['value'][0]
-            current_score = score.get('currentScore', 0)
-            max_score = score.get('maxScore', 100)
-            percentage = round((current_score / max_score * 100), 1) if max_score > 0 else 0
-            
-            # Extract control scores and fetch their profiles for categories
-            control_scores = []
-            control_categories = {}
-            
-            # Group controls by category
-            categories = {
-                'Identity': {'current': 0, 'max': 0, 'controls': []},
-                'Data': {'current': 0, 'max': 0, 'controls': []},
-                'Device': {'current': 0, 'max': 0, 'controls': []},
-                'Apps': {'current': 0, 'max': 0, 'controls': []},
-                'Infrastructure': {'current': 0, 'max': 0, 'controls': []},
-                'Other': {'current': 0, 'max': 0, 'controls': []}
-            }
-            
-            for control in score.get('controlScores', []):
-                control_name = control.get('controlName', 'Unknown')
-                control_category = control.get('controlCategory', 'Other')
-                current_val = control.get('score', 0)
-                max_val = control.get('max', 100)
-                
-                control_obj = {
-                    'name': control_name,
-                    'current': current_val,
-                    'max': max_val,
-                    'category': control_category
-                }
-                control_scores.append(control_obj)
-                
-                # Categorize (controlCategory should come from the score itself)
-                category = control_category if control_category in categories else 'Other'
-                categories[category]['current'] += current_val
-                categories[category]['max'] += max_val
-                categories[category]['controls'].append(control_obj)
-            
-            # Calculate percentages for each category
-            category_scores = []
-            for cat_name, cat_data in categories.items():
-                if cat_data['max'] > 0:
-                    percentage_val = round((cat_data['current'] / cat_data['max']) * 100, 1)
-                    category_scores.append({
-                        'name': cat_name,
-                        'current': cat_data['current'],
-                        'max': cat_data['max'],
-                        'percentage': percentage_val,
-                        'controlCount': len(cat_data['controls'])
-                    })
-            
-            print(f"  ✅ Categorized into {len([c for c in category_scores if c['controlCount'] > 0])} categories")
-            
-            # Fetch top recommendations from secureScoreControlProfiles
-            recommendations = []
-            try:
-                rec_response = requests.get(
-                    f'{GRAPH_API_BASE}/security/secureScoreControlProfiles',
-                    headers=headers,
-                    params={'$top': 50},  # Get more to filter and sort
-                    timeout=10
-                )
-                rec_response.raise_for_status()
-                rec_data = rec_response.json()
-                
-                # Prioritize not implemented and partial, but show all
-                not_implemented = []
-                partial = []
-                others = []
-                
-                for rec in rec_data.get('value', []):
-                    impl_status = rec.get('implementationStatus', 'Unknown')
-                    rec_obj = {
-                        'title': rec.get('title', 'Unknown'),
-                        'description': rec.get('actionUrl', ''),
-                        'scoreIncrease': rec.get('maxScore', 0),
-                        'tier': rec.get('tier', 'Unknown'),
-                        'implementationStatus': impl_status
-                    }
-                    
-                    if impl_status == 'NotImplemented':
-                        not_implemented.append(rec_obj)
-                    elif impl_status in ['Partial', 'Alternative']:
-                        partial.append(rec_obj)
-                    else:
-                        others.append(rec_obj)
-                
-                # Sort each group by score
-                not_implemented.sort(key=lambda x: x['scoreIncrease'], reverse=True)
-                partial.sort(key=lambda x: x['scoreIncrease'], reverse=True)
-                others.sort(key=lambda x: x['scoreIncrease'], reverse=True)
-                
-                # Combine: prioritize not implemented, then partial, then others
-                recommendations = (not_implemented + partial + others)[:5]
-                
-                print(f"  ✅ Fetched {len(recommendations)} recommendations ({len(not_implemented)} not implemented, {len(partial)} partial)")
-            except Exception as rec_error:
-                print(f"  ⚠️  Could not fetch recommendations: {rec_error}")
-            
-            print(f"  ✅ Fetched real Secure Score: {percentage}%")
-            
-            return {
-                'source': 'microsoft_graph_api',
-                'currentScore': current_score,
-                'maxScore': max_score,
-                'percentage': percentage,
-                'createdDateTime': score.get('createdDateTime'),
-                'controlScores': control_scores,
-                'categoryScores': category_scores,
-                'recommendations': recommendations,
-                'vendorInformation': score.get('vendorInformation', {})
-            }
-        else:
+        scores_data = response.json()
+        score_entries = scores_data.get('value', [])
+
+        if not score_entries:
             raise Exception("No secure score data returned from API")
-            
+
+        score = score_entries[0]  # most recent
+        current_score = score.get('currentScore', 0)
+        max_score = score.get('maxScore', 100)
+        percentage = round((current_score / max_score * 100), 1) if max_score > 0 else 0
+
+        # Build history array for frontend sparkline
+        history = []
+        for entry in reversed(score_entries):  # oldest first
+            entry_max = entry.get('maxScore', 1)
+            history.append({
+                'date': entry.get('createdDateTime', '')[:10],
+                'percentage': round((entry.get('currentScore', 0) / entry_max * 100), 1) if entry_max > 0 else 0,
+                'current': entry.get('currentScore', 0),
+                'max': entry_max,
+            })
+
+        # Calculate real trend (current vs oldest in window)
+        trend = round(percentage - history[0]['percentage'], 1) if len(history) > 1 else 0
+
+        # ── 2. Fetch ALL control profiles (maxScore + metadata) ───────────
+        # Paginate because tenants can have 200+ profiles (API default page is 100)
+        all_profiles = []
+        profiles_url = f'{GRAPH_API_BASE}/security/secureScoreControlProfiles'
+        profiles_params = {'$top': 200}
+        try:
+            while profiles_url:
+                prof_response = requests.get(
+                    profiles_url, headers=headers, params=profiles_params, timeout=15
+                )
+                prof_response.raise_for_status()
+                prof_data = prof_response.json()
+                all_profiles.extend(prof_data.get('value', []))
+                profiles_url = prof_data.get('@odata.nextLink')
+                profiles_params = {}  # nextLink includes params
+            print(f"  ✅ Fetched {len(all_profiles)} control profiles")
+        except Exception as prof_err:
+            print(f"  ⚠️  Could not fetch control profiles: {prof_err}")
+
+        # Build lookup: controlName → profile (profile.id == controlName)
+        profile_lookup = {}
+        for prof in all_profiles:
+            pid = prof.get('id', '')
+            profile_lookup[pid] = prof
+
+        # ── 3. Build per-control scores with REAL maxScore from profiles ──
+        control_scores = []
+        control_score_lookup = {}  # controlName → current score (for recommendation delta)
+
+        categories = {
+            'Identity': {'current': 0, 'max': 0, 'controls': []},
+            'Data': {'current': 0, 'max': 0, 'controls': []},
+            'Device': {'current': 0, 'max': 0, 'controls': []},
+            'Apps': {'current': 0, 'max': 0, 'controls': []},
+            'Infrastructure': {'current': 0, 'max': 0, 'controls': []},
+            'Other': {'current': 0, 'max': 0, 'controls': []}
+        }
+
+        for control in score.get('controlScores', []):
+            control_name = control.get('controlName', 'Unknown')
+            control_category = control.get('controlCategory', 'Other')
+            current_val = control.get('score', 0)
+
+            # Real maxScore from secureScoreControlProfiles
+            profile = profile_lookup.get(control_name)
+            max_val = profile.get('maxScore', 0) if profile else 0
+
+            control_obj = {
+                'name': control_name,
+                'current': current_val,
+                'max': max_val,
+                'category': control_category
+            }
+            control_scores.append(control_obj)
+            control_score_lookup[control_name] = current_val
+
+            category = control_category if control_category in categories else 'Other'
+            categories[category]['current'] += current_val
+            categories[category]['max'] += max_val
+            categories[category]['controls'].append(control_obj)
+
+        # Calculate category percentages
+        category_scores = []
+        for cat_name, cat_data in categories.items():
+            if cat_data['max'] > 0:
+                pct = round((cat_data['current'] / cat_data['max']) * 100, 1)
+                category_scores.append({
+                    'name': cat_name,
+                    'current': cat_data['current'],
+                    'max': cat_data['max'],
+                    'percentage': pct,
+                    'controlCount': len(cat_data['controls'])
+                })
+
+        active_cats = len([c for c in category_scores if c['controlCount'] > 0])
+        print(f"  ✅ Categorized into {active_cats} categories (cross-referenced with profiles)")
+
+        # ── 4. Recommendations with real scoreIncrease (delta) ────────────
+        #    Build per-category top 10 + overall top 10
+        XDR_BASE = 'https://security.microsoft.com/securescore'
+        cat_buckets = {
+            'Identity': [], 'Data': [], 'Device': [], 'Apps': [],
+            'Infrastructure': [], 'Other': [],
+        }
+        all_recs = []
+
+        for prof in all_profiles:
+            impl_status = prof.get('implementationStatus', 'Unknown')
+            prof_max = prof.get('maxScore', 0)
+            prof_id = prof.get('id', '')
+            current_achieved = control_score_lookup.get(prof_id, 0)
+            delta = round(prof_max - current_achieved, 2)
+
+            if delta <= 0:
+                continue  # already fully implemented — no gain
+
+            title = _normalize_product_names(prof.get('title', 'Unknown'))
+            service = _normalize_product_names(prof.get('service', ''))
+            remediation = _normalize_product_names(prof.get('remediation', ''))
+            remediation_impact = _normalize_product_names(prof.get('remediationImpact', ''))
+            category = prof.get('controlCategory', 'Other')
+
+            # Build XDR deep-link  (M365 Defender format: ?actionName=<controlId>)
+            xdr_url = f'{XDR_BASE}?actionName={prof_id}' if prof_id else ''
+
+            rec_obj = {
+                'title': title,
+                'actionUrl': prof.get('actionUrl', ''),
+                'xdrUrl': xdr_url,
+                'scoreIncrease': delta,
+                'maxScore': prof_max,
+                'tier': prof.get('tier', 'Unknown'),
+                'implementationStatus': impl_status,
+                'category': category,
+                'userImpact': prof.get('userImpact', ''),
+                'implementationCost': prof.get('implementationCost', ''),
+                'service': service,
+                'remediation': remediation,
+                'remediationImpact': remediation_impact,
+                'threats': prof.get('threats', []),
+            }
+
+            all_recs.append(rec_obj)
+            bucket = category if category in cat_buckets else 'Other'
+            cat_buckets[bucket].append(rec_obj)
+
+        # Sort each bucket and overall by score impact descending
+        for bucket_list in cat_buckets.values():
+            bucket_list.sort(key=lambda x: x['scoreIncrease'], reverse=True)
+        all_recs.sort(key=lambda x: x['scoreIncrease'], reverse=True)
+
+        # Top 10 per category
+        recommendations_by_category = {}
+        for cat, bucket_list in cat_buckets.items():
+            if bucket_list:
+                recommendations_by_category[cat] = bucket_list[:10]
+
+        # Overall top 10
+        recommendations = all_recs[:10]
+
+        ni_count = sum(1 for r in all_recs if r['implementationStatus'] == 'NotImplemented')
+        pa_count = sum(1 for r in all_recs if r['implementationStatus'] in ('Partial', 'Alternative'))
+        print(f"  ✅ Built {len(all_recs)} actionable recommendations "
+              f"({ni_count} not implemented, {pa_count} partial) — "
+              f"top 10 per category for {len(recommendations_by_category)} categories")
+
+        # ── 5. Action counts (matches M365 "Actions to review") ───────────
+        action_counts = {'toAddress': 0, 'riskAccepted': 0, 'resolved': 0, 'regressed': 0}
+        for prof in all_profiles:
+            impl = prof.get('implementationStatus', '')
+            if impl == 'NotImplemented':
+                action_counts['toAddress'] += 1
+            elif impl in ('Implemented', 'Default'):
+                action_counts['resolved'] += 1
+
+            # Check controlStateUpdates for user-set states
+            for update in prof.get('controlStateUpdates', []) or []:
+                state = update.get('state', '')
+                if state in ('thirdParty', 'riskAccepted'):
+                    action_counts['riskAccepted'] += 1
+                    break
+
+        # Regressed: controls where score dropped vs yesterday
+        if len(score_entries) >= 2:
+            yesterday = score_entries[1]
+            yesterday_controls = {
+                c.get('controlName'): c.get('score', 0)
+                for c in yesterday.get('controlScores', [])
+            }
+            for control in score.get('controlScores', []):
+                cname = control.get('controlName', '')
+                if cname in yesterday_controls:
+                    if control.get('score', 0) < yesterday_controls[cname]:
+                        action_counts['regressed'] += 1
+
+        # ── 6. Recent improvements (controls that gained score recently) ──
+        recent_improvements = []
+        if len(score_entries) >= 2:
+            # Compare most recent vs 7 days ago (or oldest available)
+            compare_idx = min(6, len(score_entries) - 1)
+            older_entry = score_entries[compare_idx]
+            older_controls = {
+                c.get('controlName'): c.get('score', 0)
+                for c in older_entry.get('controlScores', [])
+            }
+            for control in score.get('controlScores', []):
+                cname = control.get('controlName', '')
+                new_score = control.get('score', 0)
+                old_score = older_controls.get(cname, 0)
+                if new_score > old_score:
+                    delta = round(new_score - old_score, 2)
+                    prof = profile_lookup.get(cname, {})
+                    recent_improvements.append({
+                        'title': _normalize_product_names(prof.get('title', cname)),
+                        'pointsGained': delta,
+                    })
+            recent_improvements.sort(key=lambda x: x['pointsGained'], reverse=True)
+            recent_improvements = recent_improvements[:5]
+
+        print(f"  ✅ Fetched real Secure Score: {percentage}% "
+              f"(trend: {'+' if trend >= 0 else ''}{trend})")
+
+        return {
+            'source': 'microsoft_graph_api',
+            'currentScore': current_score,
+            'maxScore': max_score,
+            'percentage': percentage,
+            'createdDateTime': score.get('createdDateTime'),
+            'controlScores': control_scores,
+            'categoryScores': category_scores,
+            'recommendations': recommendations,
+            'recommendationsByCategory': recommendations_by_category,
+            'recentImprovements': recent_improvements,
+            'actionCounts': action_counts,
+            'trend': trend,
+            'history': history,
+            'vendorInformation': score.get('vendorInformation', {})
+        }
+
     except requests.exceptions.HTTPError as e:
         print(f"  ⚠️  HTTP Error fetching Secure Score: {e}")
-        if hasattr(e, 'response'):
-            print(f"  📄 Response: {e.response.text}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"  📄 Response: {e.response.text[:500]}")
     except Exception as e:
         print(f"  ⚠️  Error: {e}")
-    
+
     # Fallback to demo data
     print("  📊 Using demo Secure Score (API call failed)")
-    return {
-        'source': 'demo_fallback',
-        'currentScore': 78.4,
-        'maxScore': 100,
-        'percentage': 78.4,
-        'controlScores': [
-            {'name': 'Identity', 'current': 85, 'max': 100},
-            {'name': 'Data', 'current': 72, 'max': 100},
-            {'name': 'Device', 'current': 80, 'max': 100},
-            {'name': 'Apps', 'current': 75, 'max': 100},
-            {'name': 'Infrastructure', 'current': 78, 'max': 100}
-        ],
-        'recommendations': []
-    }
+    return _build_demo_secure_score('demo_fallback')
 
 def fetch_daily_alert_trends():
     """
@@ -1118,66 +1335,264 @@ def fetch_threat_intelligence(incidents, alerts):
 
 def fetch_microsoft_threat_intel(incidents, alerts):
     """
-    Fetch threat indicators from Microsoft Sentinel Threat Intelligence
-    Extracts IOCs from real incidents and alerts
+    Fetch threat indicators from Microsoft Graph tiIndicators API,
+    falling back to IOC extraction from incident/alert entities.
     """
-    import random
-    
-    # Extract unique IOCs from incidents
-    iocs = {'IPv4': set(), 'Domain': set(), 'URL': set(), 'FileHash': set()}
-    
+
+    # ── Phase 0: Try the Graph Threat Intelligence Indicators API ──
+    ti_result = _try_graph_ti_indicators()
+    if ti_result is not None:
+        return ti_result
+
+    # ── Fallback: extract IOCs from incident entities ──
+    # Entity types produced by _map_graph_incident() are lowercase:
+    #   ip, url, file, device, user, mailbox, mailCluster, process, registryValue
+    _TYPE_MAP = {
+        'ip': 'IPv4',
+        'url': 'URL',
+        'file': 'FileHash',
+    }
+
+    # value → metadata  (dict-per-category for dedup by value)
+    iocs = {'IPv4': {}, 'Domain': {}, 'URL': {}, 'FileHash': {}}
+
+    now = datetime.utcnow()
+    seven_days_ago = now - timedelta(days=7)
+
     for incident in incidents:
+        # Parse incident creation time
+        created_str = incident.get('createdTime', '')
+        is_recent = False
+        if created_str:
+            try:
+                created_dt = datetime.fromisoformat(created_str.replace('Z', '+00:00')).replace(tzinfo=None)
+                is_recent = created_dt > seven_days_ago
+            except (ValueError, TypeError):
+                pass
+
+        inc_status = (incident.get('status') or '').lower()
+        is_active = inc_status in ('active', 'new', 'inprogress')
+
         for entity in incident.get('entities', []):
-            if entity.get('type') == 'IP':
-                iocs['IPv4'].add(entity.get('name'))
-            elif entity.get('type') == 'Email':
-                # Extract domain from email
-                email = entity.get('name', '')
-                if '@' in email:
-                    domain = email.split('@')[1]
-                    iocs['Domain'].add(domain)
-            elif entity.get('type') == 'File':
-                # Generate hash for files
-                filename = entity.get('name', '')
-                if filename:
-                    iocs['FileHash'].add(filename)
-    
-    # Count by type
-    ipv4_count = len(iocs['IPv4'])
-    domain_count = len(iocs['Domain'])
-    file_count = len(iocs['FileHash'])
-    
-    # Generate URL count from incidents with web/phishing categories
-    url_count = sum(1 for i in incidents if 'phish' in i.get('title', '').lower() or 'email' in i.get('title', '').lower())
-    
-    total_iocs = ipv4_count + domain_count + url_count + file_count
-    
-    # Calculate active vs expired (assume 70% active)
-    active = int(total_iocs * 0.72)
-    expired = total_iocs - active
-    
-    # Confidence distribution based on severity
-    high_severity_count = sum(1 for i in incidents if i.get('severity') == 'High')
-    medium_severity_count = sum(1 for i in incidents if i.get('severity') == 'Medium')
-    low_severity_count = sum(1 for i in incidents if i.get('severity') in ['Low', 'Informational'])
-    
+            etype = (entity.get('type') or '').lower()
+            ename = (entity.get('name') or '').strip()
+            verdict = (entity.get('verdict') or 'unknown').lower()
+
+            if not ename:
+                continue
+
+            category = _TYPE_MAP.get(etype)
+
+            # mailbox → extract domain from email-style name
+            if etype == 'mailbox':
+                category = 'Domain'
+                if '@' in ename:
+                    ename = ename.split('@')[1]
+
+            # device / user entities may carry a domainName but aren't IOCs
+            if not category:
+                continue
+
+            if ename in iocs[category]:
+                # escalate verdict to worst seen
+                prev = iocs[category][ename]['verdict']
+                if verdict == 'malicious' or (verdict == 'suspicious' and prev != 'malicious'):
+                    iocs[category][ename]['verdict'] = verdict
+                if is_recent:
+                    iocs[category][ename]['isRecent'] = True
+                if is_active:
+                    iocs[category][ename]['isActive'] = True
+            else:
+                iocs[category][ename] = {
+                    'value': ename,
+                    'type': category,
+                    'verdict': verdict,
+                    'incidentId': incident.get('id', ''),
+                    'incidentTitle': incident.get('title', ''),
+                    'severity': incident.get('severity', ''),
+                    'isRecent': is_recent,
+                    'isActive': is_active,
+                }
+
+    # Flatten for counting
+    all_iocs = [item for cat in iocs.values() for item in cat.values()]
+    total_iocs = len(all_iocs)
+    active_count = sum(1 for i in all_iocs if i.get('isActive'))
+    expired_count = total_iocs - active_count
+    recently_added = sum(1 for i in all_iocs if i.get('isRecent'))
+
+    # Confidence from entity verdicts
+    high_conf = sum(1 for i in all_iocs if i['verdict'] == 'malicious')
+    med_conf = sum(1 for i in all_iocs if i['verdict'] == 'suspicious')
+    low_conf = total_iocs - high_conf - med_conf
+
+    print(f"  📊 Extracted {total_iocs} unique IOCs from {len(incidents)} incidents "
+          f"(IPv4:{len(iocs['IPv4'])} Domain:{len(iocs['Domain'])} "
+          f"URL:{len(iocs['URL'])} FileHash:{len(iocs['FileHash'])})")
+
     return {
         'totalIOCs': total_iocs,
-        'activeIndicators': active,
-        'expiredIndicators': expired,
+        'activeIndicators': active_count,
+        'expiredIndicators': expired_count,
         'byType': {
-            'IPv4': ipv4_count,
-            'Domain': domain_count,
-            'URL': url_count,
-            'FileHash': file_count
+            'IPv4': len(iocs['IPv4']),
+            'Domain': len(iocs['Domain']),
+            'URL': len(iocs['URL']),
+            'FileHash': len(iocs['FileHash']),
         },
-        'recentlyAdded': len([i for i in incidents if i.get('status') == 'Active'][:20]),
+        'recentlyAdded': recently_added,
         'confidence': {
-            'high': high_severity_count * 4,
-            'medium': medium_severity_count * 3,
-            'low': low_severity_count * 2
-        }
+            'high': high_conf,
+            'medium': med_conf,
+            'low': low_conf,
+        },
+        'indicators': {
+            'IPv4': sorted(iocs['IPv4'].values(), key=lambda x: x['verdict'] == 'malicious', reverse=True),
+            'Domain': sorted(iocs['Domain'].values(), key=lambda x: x['verdict'] == 'malicious', reverse=True),
+            'URL': sorted(iocs['URL'].values(), key=lambda x: x['verdict'] == 'malicious', reverse=True),
+            'FileHash': sorted(iocs['FileHash'].values(), key=lambda x: x['verdict'] == 'malicious', reverse=True),
+        },
+        'source': 'incident_entities',
     }
+
+
+def _try_graph_ti_indicators():
+    """
+    Attempt GET /security/tiIndicators from the Graph API.
+    Returns a fully-formed result dict on success, or None if the API
+    is unavailable / permission denied.
+    """
+    token = get_graph_access_token()
+    if not token:
+        return None
+
+    try:
+        resp = requests.get(
+            'https://graph.microsoft.com/v1.0/security/tiIndicators',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+            params={'$top': 500},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            print(f"  ⚠️  tiIndicators API returned {resp.status_code} — falling back to entity extraction")
+            return None
+
+        indicators = resp.json().get('value', [])
+        if not indicators:
+            print("  ℹ️  tiIndicators API returned 0 indicators — falling back to entity extraction")
+            return None
+
+        now = datetime.utcnow()
+        seven_days_ago = now - timedelta(days=7)
+
+        iocs = {'IPv4': {}, 'Domain': {}, 'URL': {}, 'FileHash': {}}
+        active_count = 0
+        expired_count = 0
+        recently_added = 0
+
+        for ind in indicators:
+            # Determine IOC category from indicator fields
+            value = None
+            category = None
+            net_dest = ind.get('networkDestinationIPv4') or ind.get('networkSourceIPv4') or ind.get('networkIPv4')
+            if net_dest:
+                value, category = net_dest, 'IPv4'
+            elif ind.get('domainName'):
+                value, category = ind['domainName'], 'Domain'
+            elif ind.get('url'):
+                value, category = ind['url'], 'URL'
+            elif ind.get('fileHashValue'):
+                value, category = ind['fileHashValue'], 'FileHash'
+
+            if not value or not category:
+                continue
+
+            # Active vs expired
+            exp_str = ind.get('expirationDateTime', '')
+            is_expired = False
+            if exp_str:
+                try:
+                    exp_dt = datetime.fromisoformat(exp_str.replace('Z', '+00:00')).replace(tzinfo=None)
+                    is_expired = exp_dt < now
+                except (ValueError, TypeError):
+                    pass
+
+            if is_expired:
+                expired_count += 1
+            else:
+                active_count += 1
+
+            # Recently added
+            created_str = ind.get('createdDateTime') or ind.get('lastReportedDateTime', '')
+            is_recent = False
+            if created_str:
+                try:
+                    created_dt = datetime.fromisoformat(created_str.replace('Z', '+00:00')).replace(tzinfo=None)
+                    is_recent = created_dt > seven_days_ago
+                except (ValueError, TypeError):
+                    pass
+            if is_recent:
+                recently_added += 1
+
+            confidence = (ind.get('confidence') or 0)
+            verdict = 'malicious' if confidence >= 75 else 'suspicious' if confidence >= 40 else 'unknown'
+
+            if value not in iocs[category]:
+                iocs[category][value] = {
+                    'value': value,
+                    'type': category,
+                    'verdict': verdict,
+                    'confidence': confidence,
+                    'severity': ind.get('severity', 'unknown'),
+                    'isRecent': is_recent,
+                    'isActive': not is_expired,
+                    'description': ind.get('description', ''),
+                    'threatType': ind.get('threatType', ''),
+                    'incidentId': '',
+                    'incidentTitle': ind.get('description', '')[:80] if ind.get('description') else '',
+                }
+
+        all_iocs = [item for cat in iocs.values() for item in cat.values()]
+        total = len(all_iocs)
+        high_conf = sum(1 for i in all_iocs if i['verdict'] == 'malicious')
+        med_conf = sum(1 for i in all_iocs if i['verdict'] == 'suspicious')
+        low_conf = total - high_conf - med_conf
+
+        print(f"  ✅ Graph tiIndicators: {total} indicators "
+              f"(IPv4:{len(iocs['IPv4'])} Domain:{len(iocs['Domain'])} "
+              f"URL:{len(iocs['URL'])} FileHash:{len(iocs['FileHash'])})")
+
+        return {
+            'totalIOCs': total,
+            'activeIndicators': active_count,
+            'expiredIndicators': expired_count,
+            'byType': {
+                'IPv4': len(iocs['IPv4']),
+                'Domain': len(iocs['Domain']),
+                'URL': len(iocs['URL']),
+                'FileHash': len(iocs['FileHash']),
+            },
+            'recentlyAdded': recently_added,
+            'confidence': {
+                'high': high_conf,
+                'medium': med_conf,
+                'low': low_conf,
+            },
+            'indicators': {
+                'IPv4': sorted(iocs['IPv4'].values(), key=lambda x: x.get('confidence', 0), reverse=True),
+                'Domain': sorted(iocs['Domain'].values(), key=lambda x: x.get('confidence', 0), reverse=True),
+                'URL': sorted(iocs['URL'].values(), key=lambda x: x.get('confidence', 0), reverse=True),
+                'FileHash': sorted(iocs['FileHash'].values(), key=lambda x: x.get('confidence', 0), reverse=True),
+            },
+            'source': 'graph_ti_indicators',
+        }
+
+    except requests.exceptions.RequestException as e:
+        print(f"  ⚠️  tiIndicators API request failed: {e}")
+        return None
+    except Exception as e:
+        print(f"  ⚠️  tiIndicators processing error: {e}")
+        return None
 
 def fetch_virustotal_stats(incidents):
     """

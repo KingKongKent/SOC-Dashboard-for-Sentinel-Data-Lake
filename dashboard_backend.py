@@ -367,21 +367,25 @@ def get_dashboard_data_from_db():
                 'status': status
             },
             'secureScore': {
-                'current': secure_score_data.get('percentage', 78.4),
+                'current': secure_score_data.get('percentage', 55.5),
                 'max': 100,
-                'trend': 5.2,
+                'trend': secure_score_data.get('trend', 0),
                 'isDemo': secure_score_data.get('source') != 'microsoft_graph_api',
                 'rawScore': secure_score_data.get('currentScore'),
                 'maxPossible': secure_score_data.get('maxScore'),
                 'controlScores': secure_score_data.get('controlScores', []),
                 'categoryScores': secure_score_data.get('categoryScores', []),
-                'recommendations': secure_score_data.get('recommendations', [])
+                'recommendations': secure_score_data.get('recommendations', []),
+                'recommendationsByCategory': secure_score_data.get('recommendationsByCategory', {}),
+                'recentImprovements': secure_score_data.get('recentImprovements', []),
+                'actionCounts': secure_score_data.get('actionCounts', {}),
+                'history': secure_score_data.get('history', []),
             },
             'incidents': incidents,
             'alerts': alerts,
             'metrics': metrics,
             'incidentSource': _detect_incident_source(incidents),
-            'secureScoreTrend': [],
+            'secureScoreTrend': secure_score_data.get('history', []),
             'dailyAlerts': daily_alerts,
             'threatIntelligence': threat_intel
         }

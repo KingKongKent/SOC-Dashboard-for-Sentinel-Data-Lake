@@ -440,7 +440,7 @@
                         <span class="kpi-icon">🎯</span>
                     </div>
                     <div class="kpi-value secure-score" id="secureScore">--</div>
-                    <small style="color: #666;">Microsoft 365 Security</small>
+                    <small id="secureScoreTrend" style="color: #666;">Microsoft 365 Security</small>
                 </div>
                 <div class="kpi-card clickable" onclick="filterIncidentsBySeverity('High')" title="Click to filter High severity incidents">
                     <div class="kpi-header">
@@ -1181,6 +1181,21 @@
                 console.log('✅ Real Secure Score loaded - hiding DEMO badge');
             }
             
+            // Update secure score trend subtitle on KPI card
+            const trendEl = document.getElementById('secureScoreTrend');
+            if (trendEl && data.secureScore) {
+                const t = data.secureScore.trend || 0;
+                if (t !== 0 && !data.secureScore.isDemo) {
+                    const arrow = t > 0 ? '▲' : '▼';
+                    const sign = t > 0 ? '+' : '';
+                    trendEl.style.color = t > 0 ? '#388e3c' : '#e74c3c';
+                    trendEl.textContent = `${arrow} ${sign}${t} this month`;
+                } else {
+                    trendEl.style.color = '#666';
+                    trendEl.textContent = 'Microsoft 365 Security';
+                }
+            }
+            
             document.getElementById('highIncidents').textContent = data.metrics?.high || 0;
             document.getElementById('totalIncidents').textContent = data.metrics?.total || 0;
             document.getElementById('activeIncidents').textContent = data.metrics?.active || 0;
@@ -1578,67 +1593,213 @@
             renderIncidentsTable();
         }
 
-        function getRecommendationsHtml(recommendations) {
-            if (recommendations && recommendations.length > 0) {
+        function getRecommendationsHtml(recommendations, categoryFilter) {
+            // If categoryFilter provided, show that category's actions; otherwise show overall top 10
+            const secureScore = window.dashboardData?.secureScore || {};
+            let recs = recommendations;
+            if (categoryFilter && secureScore.recommendationsByCategory && secureScore.recommendationsByCategory[categoryFilter]) {
+                recs = secureScore.recommendationsByCategory[categoryFilter];
+            }
+            if (!recs || recs.length === 0) {
+                return '<p style="color: #666; font-style: italic;">No improvement actions for this category.</p>';
+            }
+            return `
+                <div style="margin: 10px 0;">
+                    ${recs.map((rec, idx) => {
+                        const hasXdr = rec.xdrUrl && rec.xdrUrl.startsWith('http');
+                        const hasAction = rec.actionUrl && rec.actionUrl.startsWith('http');
+                        const statusColor = rec.implementationStatus === 'NotImplemented' ? '#e74c3c' 
+                            : rec.implementationStatus === 'Partial' ? '#ff9800' : '#2196f3';
+                        const statusLabel = rec.implementationStatus === 'NotImplemented' ? 'To address'
+                            : rec.implementationStatus === 'Partial' ? 'Partial' : rec.implementationStatus || '';
+                        const costIcon = rec.implementationCost === 'low' ? '🟢' : rec.implementationCost === 'moderate' ? '🟡' : rec.implementationCost === 'high' ? '🔴' : '';
+                        const impactIcon = rec.userImpact === 'low' ? '🟢' : rec.userImpact === 'moderate' ? '🟡' : rec.userImpact === 'high' ? '🔴' : '';
+                        const cardId = 'rec_' + idx + '_' + (categoryFilter || 'all');
+                        const threats = (rec.threats || []).slice(0, 4).join(', ');
+                        
+                        return `
+                        <div style="margin-bottom: 8px; background: #f9fafb; border-radius: 8px; border-left: 4px solid ${statusColor}; transition: all 0.2s;">
+                            <div style="padding: 12px 15px; cursor: pointer;" onclick="document.getElementById('${cardId}').style.display = document.getElementById('${cardId}').style.display === 'none' ? 'block' : 'none';"
+                                onmouseover="this.parentElement.style.background='#eef1f5';" onmouseout="this.parentElement.style.background='#f9fafb';">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div style="flex: 1;">
+                                        <strong style="font-size: 14px;">${idx + 1}. ${rec.title}</strong>
+                                        <span style="color: #999; font-size: 11px; margin-left: 6px;">▼</span>
+                                        <div style="margin-top: 4px; font-size: 12px; color: #666;">
+                                            ${rec.service ? `<span style="margin-right: 12px;">🔧 ${rec.service}</span>` : ''}
+                                            ${rec.tier ? `<span style="margin-right: 12px;">🏷️ ${rec.tier}</span>` : ''}
+                                        </div>
+                                    </div>
+                                    <div style="text-align: right; min-width: 100px;">
+                                        <div style="font-weight: 600; color: #0078d4; font-size: 14px;">+${rec.scoreIncrease.toFixed(2)}</div>
+                                        <div style="font-size: 11px; color: ${statusColor}; font-weight: 500;">${statusLabel}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="${cardId}" style="display: none; padding: 0 15px 14px 15px; border-top: 1px solid #e8e8e8;">
+                                <div style="margin-top: 10px; font-size: 13px;">
+                                    ${rec.remediation ? `<div style="margin-bottom: 8px;"><strong>Remediation:</strong> ${rec.remediation}</div>` : ''}
+                                    ${rec.remediationImpact ? `<div style="margin-bottom: 8px;"><strong>Impact on users:</strong> ${rec.remediationImpact}</div>` : ''}
+                                    <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: #555;">
+                                        ${rec.implementationCost ? `<span>${costIcon} Cost: ${rec.implementationCost}</span>` : ''}
+                                        ${rec.userImpact ? `<span>${impactIcon} User impact: ${rec.userImpact}</span>` : ''}
+                                        ${rec.maxScore ? `<span>🎯 Max score: ${rec.maxScore}</span>` : ''}
+                                    </div>
+                                    ${threats ? `<div style="margin-bottom: 8px; font-size: 12px; color: #555;">🛡️ Threats mitigated: ${threats}</div>` : ''}
+                                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                                        ${hasXdr ? `<button onclick="event.stopPropagation(); window.open('${rec.xdrUrl}', '_blank');" style="padding: 6px 14px; background: #0078d4; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">View in Defender XDR</button>` : ''}
+                                        ${hasAction ? `<button onclick="event.stopPropagation(); window.open('${rec.actionUrl}', '_blank');" style="padding: 6px 14px; background: #fff; color: #0078d4; border: 1px solid #0078d4; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">Documentation</button>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function buildCategoryTabsHtml(secureScore) {
+            const byCat = secureScore.recommendationsByCategory || {};
+            const allRecs = secureScore.recommendations || [];
+            const tabs = ['All'];
+            const mainCats = ['Identity', 'Device', 'Apps', 'Data'];
+            mainCats.forEach(c => { if (byCat[c] && byCat[c].length > 0) tabs.push(c); });
+
+            const tabButtons = tabs.map((tab, i) => {
+                const count = tab === 'All' ? allRecs.length : (byCat[tab] || []).length;
+                return `<button id="recTab_${tab}" onclick="switchRecTab('${tab}')" style="padding: 8px 18px; border: none; border-bottom: 3px solid ${i === 0 ? '#0078d4' : 'transparent'}; background: ${i === 0 ? '#eef5fd' : '#f9fafb'}; cursor: pointer; font-size: 13px; font-weight: ${i === 0 ? '600' : '400'}; color: ${i === 0 ? '#0078d4' : '#333'}; transition: all 0.15s; border-radius: 6px 6px 0 0;"
+                    onmouseover="if(!this.classList.contains('active-tab'))this.style.background='#eef1f5';"
+                    onmouseout="if(!this.classList.contains('active-tab'))this.style.background='#f9fafb';">${tab} (${count})</button>`;
+            }).join('');
+
+            const tabContent = `<div id="recTabContent">${getRecommendationsHtml(allRecs, null)}</div>`;
+
+            return `
+                <div style="display: flex; gap: 4px; border-bottom: 1px solid #e0e0e0; margin-bottom: 10px;">
+                    ${tabButtons}
+                </div>
+                ${tabContent}
+            `;
+        }
+
+        function getActionCountsHtml(actionCounts) {
+            if (!actionCounts) return '';
+            const items = [
+                { label: 'Regressed', value: actionCounts.regressed || 0, color: '#e74c3c', icon: '📉' },
+                { label: 'To address', value: actionCounts.toAddress || 0, color: '#ff9800', icon: '🔧' },
+                { label: 'Resolved', value: actionCounts.resolved || 0, color: '#4caf50', icon: '✅' },
+                { label: 'Risk accepted', value: actionCounts.riskAccepted || 0, color: '#9e9e9e', icon: '🛡️' },
+            ];
+            return `
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; margin: 15px 0;">
+                    ${items.map(item => `
+                        <div style="flex: 1; min-width: 110px; padding: 14px; background: #f9fafb; border-radius: 8px; text-align: center; border-top: 3px solid ${item.color};">
+                            <div style="font-size: 11px; color: #666; margin-bottom: 4px;">${item.icon} ${item.label}</div>
+                            <div style="font-size: 28px; font-weight: bold; color: ${item.color};">${item.value}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function switchRecTab(tab) {
+            const secureScore = window.dashboardData?.secureScore || {};
+            const allRecs = secureScore.recommendations || [];
+            const filter = tab === 'All' ? null : tab;
+            const contentEl = document.getElementById('recTabContent');
+            if (contentEl) {
+                contentEl.innerHTML = getRecommendationsHtml(allRecs, filter);
+            }
+            // Update tab button styling
+            const allTabs = ['All', 'Identity', 'Device', 'Apps', 'Data'];
+            allTabs.forEach(t => {
+                const btn = document.getElementById('recTab_' + t);
+                if (btn) {
+                    const isActive = t === tab;
+                    btn.style.borderBottom = isActive ? '3px solid #0078d4' : '3px solid transparent';
+                    btn.style.background = isActive ? '#eef5fd' : '#f9fafb';
+                    btn.style.fontWeight = isActive ? '600' : '400';
+                    btn.style.color = isActive ? '#0078d4' : '#333';
+                }
+            });
+        }
+
+        function getRecentImprovementsHtml(improvements) {
+            if (improvements && improvements.length > 0) {
                 return `
-                    <ol style="margin: 10px 0; padding-left: 20px;">
-                        ${recommendations.map(rec => `
-                            <li style="margin-bottom: 10px;">
-                                <strong>${rec.title}</strong> 
-                                ${rec.scoreIncrease > 0 ? `- Impact: +${rec.scoreIncrease} points` : ''}
-                                ${rec.tier ? `<span style="color: #666; font-size: 12px;"> (${rec.tier})</span>` : ''}
+                    <ul style="margin: 10px 0; padding-left: 20px;">
+                        ${improvements.map(imp => `
+                            <li style="margin-bottom: 8px; color: #388e3c;">
+                                ✓ ${imp.title} (+${imp.pointsGained.toFixed(1)} points)
                             </li>
                         `).join('')}
-                    </ol>
-                `;
-            } else {
-                // Fallback demo recommendations
-                return `
-                    <ol style="margin: 10px 0; padding-left: 20px;">
-                        <li style="margin-bottom: 10px;"><strong>Enable MFA for all users</strong> - Impact: +12 points</li>
-                        <li style="margin-bottom: 10px;"><strong>Configure Conditional Access policies</strong> - Impact: +8 points</li>
-                        <li style="margin-bottom: 10px;"><strong>Enable Microsoft Defender for Cloud Apps</strong> - Impact: +6 points</li>
-                        <li style="margin-bottom: 10px;"><strong>Implement data loss prevention policies</strong> - Impact: +5 points</li>
-                        <li style="margin-bottom: 10px;"><strong>Enable advanced threat protection for SharePoint</strong> - Impact: +4 points</li>
-                    </ol>
+                    </ul>
                 `;
             }
+            return '<p style="color: #666; font-style: italic;">No recent score improvements detected in the last 7 days.</p>';
+        }
+
+        function getHistorySparklineHtml(history) {
+            if (!history || history.length < 2) return '';
+            const maxPct = Math.max(...history.map(h => h.percentage));
+            const minPct = Math.min(...history.map(h => h.percentage));
+            const range = maxPct - minPct || 1;
+            const width = 300;
+            const height = 50;
+            const points = history.map((h, i) => {
+                const x = (i / (history.length - 1)) * width;
+                const y = height - ((h.percentage - minPct) / range) * (height - 6) - 3;
+                return `${x},${y}`;
+            }).join(' ');
+            return `
+                <div style="margin: 10px 0;">
+                    <svg width="${width}" height="${height}" style="overflow: visible;">
+                        <polyline points="${points}" fill="none" stroke="#0078d4" stroke-width="2" stroke-linejoin="round"/>
+                    </svg>
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #999;">
+                        <span>${history[0].date}</span>
+                        <span>${history[history.length - 1].date}</span>
+                    </div>
+                </div>
+            `;
         }
 
         function showSecureScoreDetails() {
             const modal = document.getElementById('incidentModal');
             const modalContent = document.getElementById('modalContent');
             
-            // Get secure score data from current dashboard data
             const secureScore = window.dashboardData?.secureScore || {};
-            const score = secureScore.current || 78.4;
-            const isDemo = secureScore.isDemo !== false; // Default to demo if not specified
+            const score = secureScore.current || 55.5;
+            const isDemo = secureScore.isDemo !== false;
             const categoryScores = secureScore.categoryScores || [];
             const rawScore = secureScore.rawScore || score;
             const maxPossible = secureScore.maxPossible || 100;
+            const trend = secureScore.trend || 0;
+            const actionCounts = secureScore.actionCounts || {};
+            const history = secureScore.history || [];
+            const recentImprovements = secureScore.recentImprovements || [];
             
-            // Build demo badge HTML (never show it for real data)
-            const demoBadge = '';
-            
-            // Build demo warning HTML
             const demoWarning = isDemo ? `
                 <div style="background: #fff3cd; border-left: 4px solid #ff9800; padding: 15px; margin: 15px 0; border-radius: 4px;">
                     <strong>⚠️ Note:</strong> This Secure Score data is for demonstration purposes. To see real data, integrate with Microsoft Graph Security API.
                 </div>
             ` : '';
             
-            // Build category scores HTML
+            // Trend display
+            const trendColor = trend > 0 ? '#388e3c' : trend < 0 ? '#e74c3c' : '#666';
+            const trendArrow = trend > 0 ? '▲' : trend < 0 ? '▼' : '—';
+            const trendSign = trend > 0 ? '+' : '';
+            const trendHtml = `<div style="color: ${trendColor}; font-size: 16px; font-weight: 600;">${trendArrow} ${trendSign}${trend} this month</div>`;
+            
+            // Category scores
             let categoryScoresHtml = '';
             const categoryIcons = {
-                'Identity': '👤',
-                'Data': '📄',
-                'Device': '💻',
-                'Apps': '📱',
-                'Infrastructure': '🏗️'
+                'Identity': '👤', 'Data': '📄', 'Device': '💻',
+                'Apps': '📱', 'Infrastructure': '🏗️'
             };
             
             if (categoryScores.length > 0) {
-                // Filter to main categories and sort
                 const mainCategories = categoryScores
                     .filter(cat => ['Identity', 'Data', 'Device', 'Apps', 'Infrastructure'].includes(cat.name))
                     .sort((a, b) => b.percentage - a.percentage);
@@ -1661,58 +1822,26 @@
                     `;
                 }).join('');
             } else {
-                // Fallback demo data
-                categoryScoresHtml = `
-                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span style="font-size: 16px;"><strong>👤 Identity:</strong> 85/100 (85%)</span>
-                            <span style="color: #666; font-size: 12px;">Demo</span>
-                        </div>
-                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
-                            <div style="width: 85%; height: 100%; background: #4caf50; border-radius: 6px;"></div>
-                        </div>
-                    </div>
-                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span style="font-size: 16px;"><strong>💻 Device:</strong> 76/100 (76%)</span>
-                            <span style="color: #666; font-size: 12px;">Demo</span>
-                        </div>
-                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
-                            <div style="width: 76%; height: 100%; background: #2196f3; border-radius: 6px;"></div>
-                        </div>
-                    </div>
-                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span style="font-size: 16px;"><strong>📱 Apps:</strong> 82/100 (82%)</span>
-                            <span style="color: #666; font-size: 12px;">Demo</span>
-                        </div>
-                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
-                            <div style="width: 82%; height: 100%; background: #4caf50; border-radius: 6px;"></div>
-                        </div>
-                    </div>
-                    <div style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span style="font-size: 16px;"><strong>📄 Data:</strong> 71/100 (71%)</span>
-                            <span style="color: #666; font-size: 12px;">Demo</span>
-                        </div>
-                        <div style="width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;">
-                            <div style="width: 71%; height: 100%; background: #ff9800; border-radius: 6px;"></div>
-                        </div>
-                    </div>
-                `;
+                categoryScoresHtml = '<p style="color: #666; font-style: italic;">No category data available.</p>';
             }
             
             modalContent.innerHTML = `
-                <h2>🎯 Secure Score Details ${demoBadge}</h2>
+                <h2>🎯 Secure Score Details</h2>
                 ${demoWarning}
                 <div style="margin: 20px 0;">
-                    <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 30px;">
+                    <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
                         <div style="font-size: 72px; font-weight: bold; color: #0078d4;">${score}</div>
                         <div>
                             <div style="color: #666; font-size: 14px;">out of 100${!isDemo ? ` (${rawScore.toFixed(2)} / ${maxPossible})` : ''}</div>
-                            <div style="color: #388e3c; font-size: 16px; font-weight: 600;">▲ +5.2 this month</div>
+                            ${trendHtml}
+                            ${getHistorySparklineHtml(history)}
                         </div>
                     </div>
+                </div>
+                
+                <div class="detail-section">
+                    <h3>📋 Actions to Review</h3>
+                    ${getActionCountsHtml(actionCounts)}
                 </div>
                 
                 <div class="detail-section">
@@ -1723,17 +1852,13 @@
                 </div>
                 
                 <div class="detail-section">
-                    <h3>⚠️ Top Recommendations</h3>
-                    ${getRecommendationsHtml(secureScore.recommendations || [])}
+                    <h3>⚠️ Top Improvement Actions</h3>
+                    ${buildCategoryTabsHtml(secureScore)}
                 </div>
                 
                 <div class="detail-section">
                     <h3>📈 Recent Improvements</h3>
-                    <ul style="margin: 10px 0; padding-left: 20px;">
-                        <li style="margin-bottom: 8px; color: #388e3c;">✓ Enabled multifactor authentication for admins (+3 points)</li>
-                        <li style="margin-bottom: 8px; color: #388e3c;">✓ Configured security defaults (+2 points)</li>
-                        <li style="margin-bottom: 8px; color: #388e3c;">✓ Updated password policies (+1 point)</li>
-                    </ul>
+                    ${getRecentImprovementsHtml(recentImprovements)}
                 </div>
                 
                 <div style="margin-top: 30px; display: flex; gap: 10px;">
@@ -1921,68 +2046,35 @@
             
             if (category === 'indicators') {
                 const data = threatData.microsoft;
-                const incidents = window.dashboardData?.incidents || [];
-                
-                // Extract actual IOCs from incidents
-                const iocs = { IPv4: [], Domains: [], URLs: [], FileHashes: [] };
-                incidents.forEach(inc => {
-                    inc.entities?.forEach(entity => {
-                        const iocData = { 
-                            value: entity.name, 
-                            verdict: entity.verdict,
-                            incidentId: inc.id,
-                            incidentTitle: inc.title,
-                            severity: inc.severity
-                        };
-                        
-                        if (entity.type === 'IP') {
-                            iocs.IPv4.push(iocData);
-                        } else if (entity.type === 'Email' && entity.name.includes('@')) {
-                            const domain = entity.name.split('@')[1];
-                            if (domain) {
-                                iocs.Domains.push({ ...iocData, value: domain });
-                            }
-                        } else if (entity.type === 'File') {
-                            iocs.FileHashes.push(iocData);
-                        }
-                    });
-                    
-                    // Count URLs from phishing incidents
-                    if (inc.title.toLowerCase().includes('email') || inc.title.toLowerCase().includes('phish')) {
-                        iocs.URLs.push({
-                            value: `Email: ${inc.title}`,
-                            verdict: 'suspicious',
-                            incidentId: inc.id,
-                            incidentTitle: inc.title,
-                            severity: inc.severity
-                        });
-                    }
-                });
+                // Use backend-provided indicators (already deduped, sorted by verdict)
+                const indicators = data.indicators || { IPv4: [], Domain: [], URL: [], FileHash: [] };
+                const sourceLabel = data.source === 'graph_ti_indicators' ? 'Graph TI API' : 'Incident Entities';
                 
                 content = `
-                    <h2>🎯 Threat Indicators - Microsoft Sentinel</h2>
+                    <h2>🎯 Threat Indicators</h2>
                     <div style="margin: 20px 0;">
                         <span class="status-badge" style="background: #2196F3;">IOC Intelligence</span>
+                        <span class="status-badge" style="background: #666; margin-left: 8px;">Source: ${sourceLabel}</span>
                     </div>
                     
                     <div class="detail-section">
                         <h3>📊 Overview</h3>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin: 15px 0;">
                             <div class="clickable" onclick="showIOCDetails('total')" style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #2196F3; cursor: pointer;" title="Click to view all IOCs">
                                 <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${data.totalIOCs}</div>
                                 <div style="color: #666; font-size: 13px;">Total IOCs</div>
                             </div>
-                            <div class="clickable" onclick="filterByThreatType('all-categories')" style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #4CAF50; cursor: pointer;" title="Click to filter active incidents">
+                            <div class="clickable" onclick="showIOCDetails('active')" style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #4CAF50; cursor: pointer;" title="IOCs from active incidents">
                                 <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${data.activeIndicators}</div>
-                                <div style="color: #666; font-size: 13px;">Active Indicators</div>
+                                <div style="color: #666; font-size: 13px;">Active</div>
                             </div>
                             <div style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #FF9800;">
                                 <div style="font-size: 24px; font-weight: bold; color: #FF9800;">${data.expiredIndicators}</div>
-                                <div style="color: #666; font-size: 13px;">Expired Indicators</div>
+                                <div style="color: #666; font-size: 13px;">Resolved</div>
                             </div>
                             <div style="padding: 15px; background: #f5f5f5; border-radius: 6px; border-left: 3px solid #9C27B0;">
                                 <div style="font-size: 24px; font-weight: bold; color: #9C27B0;">${data.recentlyAdded}</div>
-                                <div style="color: #666; font-size: 13px;">Recently Added</div>
+                                <div style="color: #666; font-size: 13px;">Added (7d)</div>
                             </div>
                         </div>
                     </div>
@@ -1992,43 +2084,44 @@
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
                             <div class="clickable" onclick="showIOCDetails('ipv4')" style="padding: 12px; background: #e3f2fd; border-radius: 4px; cursor: pointer; border-left: 3px solid #2196F3;" title="Click to view IPv4 addresses">
                                 <strong>🌐 IPv4 Addresses:</strong> ${data.byType.IPv4}
-                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.IPv4.length} actual IPs extracted</div>
                             </div>
                             <div class="clickable" onclick="showIOCDetails('domains')" style="padding: 12px; background: #f3e5f5; border-radius: 4px; cursor: pointer; border-left: 3px solid #9C27B0;" title="Click to view domains">
                                 <strong>🌍 Domains:</strong> ${data.byType.Domain}
-                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.Domains.length} domains extracted</div>
                             </div>
                             <div class="clickable" onclick="showIOCDetails('urls')" style="padding: 12px; background: #fff3e0; border-radius: 4px; cursor: pointer; border-left: 3px solid #FF9800;" title="Click to view URLs">
                                 <strong>🔗 URLs:</strong> ${data.byType.URL}
-                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.URLs.length} email/phishing threats</div>
                             </div>
                             <div class="clickable" onclick="showIOCDetails('files')" style="padding: 12px; background: #fce4ec; border-radius: 4px; cursor: pointer; border-left: 3px solid #E91E63;" title="Click to view file hashes">
                                 <strong>📄 File Hashes:</strong> ${data.byType.FileHash}
-                                <div style="font-size: 11px; color: #666; margin-top: 4px;">${iocs.FileHashes.length} files detected</div>
                             </div>
                         </div>
                     </div>
                     
                     <div class="detail-section">
-                        <h3>🎯 Confidence Levels</h3>
+                        <h3>🎯 Confidence (based on entity verdicts)</h3>
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
                             <div style="margin-bottom: 10px;">
-                                <span class="clickable" onclick="filterByConfidence('high')" style="padding: 6px 14px; background: #d32f2f; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Click to filter high confidence IOCs">High: ${data.confidence.high}</span>
-                                <span class="clickable" onclick="filterByConfidence('medium')" style="padding: 6px 14px; background: #ff9800; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Click to filter medium confidence IOCs">Medium: ${data.confidence.medium}</span>
-                                <span class="clickable" onclick="filterByConfidence('low')" style="padding: 6px 14px; background: #fbc02d; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Click to filter low confidence IOCs">Low: ${data.confidence.low}</span>
+                                <span class="clickable" onclick="filterIOCsByVerdict('malicious')" style="padding: 6px 14px; background: #d32f2f; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Malicious verdict">Malicious: ${data.confidence.high}</span>
+                                <span class="clickable" onclick="filterIOCsByVerdict('suspicious')" style="padding: 6px 14px; background: #ff9800; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Suspicious verdict">Suspicious: ${data.confidence.medium}</span>
+                                <span class="clickable" onclick="filterIOCsByVerdict('unknown')" style="padding: 6px 14px; background: #9e9e9e; color: white; border-radius: 3px; cursor: pointer; display: inline-block; margin: 4px;" title="Unknown verdict">Unknown: ${data.confidence.low}</span>
                             </div>
                         </div>
                     </div>
                     
                     <div class="detail-section" id="iocDetailsSection" style="display: none;">
                         <h3 id="iocDetailsTitle">📋 IOC Details</h3>
-                        <div id="iocDetailsContent" style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                        <div id="iocDetailsContent" style="max-height: 500px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 6px;">
                         </div>
                     </div>
                 `;
                 
-                // Store IOCs in window for later use
-                window.currentIOCs = iocs;
+                // Store backend indicators in window for drill-down
+                window.currentIOCs = {
+                    IPv4: indicators.IPv4 || [],
+                    Domains: indicators.Domain || [],
+                    URLs: indicators.URL || [],
+                    FileHashes: indicators.FileHash || [],
+                };
             } else if (category === 'abuseipdb') {
                 const data = threatData.abuseIPDB;
                 
@@ -2353,25 +2446,21 @@
             let content = '';
             let entities = { IPs: [], Users: [], Emails: [], Files: [], Devices: [] };
             
-            // Extract all entities from incidents
+            // Extract all entities from incidents (types are lowercase from backend)
             incidents.forEach(incident => {
                 incident.entities?.forEach(entity => {
-                    switch(entity.type) {
-                        case 'IP':
-                            entities.IPs.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
-                            break;
-                        case 'User':
-                            entities.Users.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
-                            break;
-                        case 'Email':
-                            entities.Emails.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
-                            break;
-                        case 'File':
-                            entities.Files.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
-                            break;
-                        case 'Device':
-                            entities.Devices.push({ ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity });
-                            break;
+                    const t = (entity.type || '').toLowerCase();
+                    const enriched = { ...entity, incidentId: incident.id, incidentTitle: incident.title, severity: incident.severity };
+                    if (t === 'ip') {
+                        entities.IPs.push(enriched);
+                    } else if (t === 'user') {
+                        entities.Users.push(enriched);
+                    } else if (t === 'mailbox') {
+                        entities.Emails.push(enriched);
+                    } else if (t === 'file') {
+                        entities.Files.push(enriched);
+                    } else if (t === 'device') {
+                        entities.Devices.push(enriched);
                     }
                 });
             });
@@ -2593,33 +2682,80 @@
             
             let html = '';
             let iocList = [];
+            let listType = '';  // track which category for investigation buttons
             
             if (type === 'ipv4') {
                 title.textContent = '🌐 IPv4 Addresses';
                 iocList = iocs.IPv4;
+                listType = 'ip';
             } else if (type === 'domains') {
                 title.textContent = '🌍 Domains';
                 iocList = iocs.Domains;
+                listType = 'domain';
             } else if (type === 'urls') {
-                title.textContent = '🔗 URLs / Email Threats';
+                title.textContent = '🔗 URLs';
                 iocList = iocs.URLs;
+                listType = 'url';
             } else if (type === 'files') {
                 title.textContent = '📄 File Hashes';
                 iocList = iocs.FileHashes;
+                listType = 'file';
             } else if (type === 'total') {
                 title.textContent = '📊 All IOCs';
                 iocList = [...iocs.IPv4, ...iocs.Domains, ...iocs.URLs, ...iocs.FileHashes];
+                listType = 'all';
+            } else if (type === 'active') {
+                title.textContent = '🟢 Active IOCs';
+                iocList = [...iocs.IPv4, ...iocs.Domains, ...iocs.URLs, ...iocs.FileHashes].filter(i => i.isActive);
+                listType = 'all';
             }
             
-            // Remove duplicates
-            const uniqueIOCs = Array.from(new Map(iocList.map(item => [item.value, item])).values());
-            
-            if (uniqueIOCs.length === 0) {
+            if (iocList.length === 0) {
                 html = '<p style="color: #666; text-align: center; padding: 20px;">No IOCs found of this type</p>';
             } else {
-                html = uniqueIOCs.map(ioc => {
+                html = iocList.map(ioc => {
                     const verdictColor = ioc.verdict === 'malicious' ? '#d32f2f' : 
                                         ioc.verdict === 'suspicious' ? '#ff9800' : '#666';
+                    const iocType = (ioc.type || listType || '').toLowerCase();
+                    const safeVal = (ioc.value || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    
+                    // Build investigation buttons based on IOC type
+                    let investigateHtml = '';
+                    if (iocType === 'ipv4' || iocType === 'ip') {
+                        investigateHtml = `
+                            <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">
+                                <button onclick="window.open('https://security.microsoft.com/ip/${safeVal}','_blank')" style="padding: 4px 8px; background: #0078d4; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Defender XDR</button>
+                                <button onclick="window.open('https://www.virustotal.com/gui/ip-address/${safeVal}','_blank')" style="padding: 4px 8px; background: #394EFF; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">VirusTotal</button>
+                                <button onclick="window.open('https://www.abuseipdb.com/check/${safeVal}','_blank')" style="padding: 4px 8px; background: #FF6B35; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">AbuseIPDB</button>
+                                <button onclick="window.open('https://www.shodan.io/host/${safeVal}','_blank')" style="padding: 4px 8px; background: #E74C3C; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Shodan</button>
+                                <button onclick="copyToClipboard('${safeVal}')" style="padding: 4px 8px; background: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">📋 Copy</button>
+                            </div>`;
+                    } else if (iocType === 'domain') {
+                        investigateHtml = `
+                            <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">
+                                <button onclick="window.open('https://security.microsoft.com/domains/${safeVal}','_blank')" style="padding: 4px 8px; background: #0078d4; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Defender XDR</button>
+                                <button onclick="window.open('https://www.virustotal.com/gui/domain/${safeVal}','_blank')" style="padding: 4px 8px; background: #394EFF; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">VirusTotal</button>
+                                <button onclick="copyToClipboard('${safeVal}')" style="padding: 4px 8px; background: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">📋 Copy</button>
+                            </div>`;
+                    } else if (iocType === 'url') {
+                        investigateHtml = `
+                            <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">
+                                <button onclick="window.open('https://security.microsoft.com/urls/${safeVal}','_blank')" style="padding: 4px 8px; background: #0078d4; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Defender XDR</button>
+                                <button onclick="copyToClipboard('${safeVal}')" style="padding: 4px 8px; background: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">📋 Copy</button>
+                            </div>`;
+                    } else if (iocType === 'filehash' || iocType === 'file') {
+                        investigateHtml = `
+                            <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">
+                                <button onclick="window.open('https://security.microsoft.com/files/${safeVal}','_blank')" style="padding: 4px 8px; background: #0078d4; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">Defender XDR</button>
+                                <button onclick="window.open('https://www.virustotal.com/gui/search/${safeVal}','_blank')" style="padding: 4px 8px; background: #394EFF; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">VirusTotal</button>
+                                <button onclick="copyToClipboard('${safeVal}')" style="padding: 4px 8px; background: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 10px;">📋 Copy</button>
+                            </div>`;
+                    }
+                    
+                    const incidentLink = ioc.incidentId 
+                        ? `<span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${ioc.incidentId}")'>${ioc.incidentTitle || 'View incident'}</span>`
+                        : (ioc.incidentTitle || '');
+                    
                     return `
                         <div style="padding: 12px; margin: 8px 0; background: white; border-radius: 4px; border-left: 4px solid ${verdictColor};">
                             <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 10px;">
@@ -2629,13 +2765,15 @@
                                     </div>
                                     <div style="font-size: 12px; color: #666; margin-top: 6px;">
                                         <strong>Verdict:</strong> <span style="color: ${verdictColor}; text-transform: uppercase; font-weight: bold;">${ioc.verdict || 'unknown'}</span>
+                                        ${ioc.isActive ? '<span style="margin-left: 8px; padding: 2px 6px; background: #e8f5e9; color: #2e7d32; border-radius: 3px; font-size: 10px;">ACTIVE</span>' : '<span style="margin-left: 8px; padding: 2px 6px; background: #f5f5f5; color: #999; border-radius: 3px; font-size: 10px;">RESOLVED</span>'}
                                     </div>
                                     <div style="font-size: 12px; color: #999; margin-top: 4px;">
-                                        <strong>Incident:</strong> <span class="clickable" style="color: #2196F3; text-decoration: underline;" onclick='showIncidentById("${ioc.incidentId}")'>${ioc.incidentTitle}</span>
+                                        <strong>Incident:</strong> ${incidentLink}
                                     </div>
+                                    ${investigateHtml}
                                 </div>
                                 <div>
-                                    <span class="severity-badge severity-${ioc.severity.toLowerCase()}" style="font-size: 11px; padding: 4px 8px;">${ioc.severity}</span>
+                                    <span class="severity-badge severity-${(ioc.severity || 'medium').toLowerCase()}" style="font-size: 11px; padding: 4px 8px;">${ioc.severity || ''}</span>
                                 </div>
                             </div>
                         </div>
@@ -2646,6 +2784,34 @@
             content.innerHTML = html;
             section.style.display = 'block';
             section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
+        function filterIOCsByVerdict(verdict) {
+            const iocs = window.currentIOCs;
+            if (!iocs) return;
+            
+            const all = [...(iocs.IPv4 || []), ...(iocs.Domains || []), ...(iocs.URLs || []), ...(iocs.FileHashes || [])];
+            const filtered = all.filter(i => (i.verdict || 'unknown') === verdict);
+            
+            // Temporarily swap into window.currentIOCs for showIOCDetails
+            const backup = { ...window.currentIOCs };
+            window.currentIOCs = { IPv4: filtered, Domains: [], URLs: [], FileHashes: [] };
+            
+            const section = document.getElementById('iocDetailsSection');
+            const title = document.getElementById('iocDetailsTitle');
+            const content = document.getElementById('iocDetailsContent');
+            title.textContent = `🎯 ${verdict.charAt(0).toUpperCase() + verdict.slice(1)} Verdict IOCs (${filtered.length})`;
+            
+            // Reuse the same rendering as showIOCDetails('total')
+            if (filtered.length === 0) {
+                content.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">No IOCs with this verdict</p>';
+            } else {
+                // Trigger total view on the swapped data
+                showIOCDetails('total');
+            }
+            
+            // Restore
+            window.currentIOCs = backup;
         }
         
         function filterByConfidence(level) {
