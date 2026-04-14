@@ -371,11 +371,18 @@ def _map_graph_incident(inc: dict) -> dict:
                      ev.get('url') or
                      ev.get('domainName') or '')
             if ename:
-                entities.append({
+                entity = {
                     'type': etype or 'Unknown',
                     'name': ename,
                     'verdict': ev.get('verdict', 'unknown'),
-                })
+                }
+                # Enrich file entities with hashes from Graph fileDetails
+                file_details = ev.get('fileDetails') or {}
+                if file_details.get('sha256'):
+                    entity['sha256'] = file_details['sha256']
+                if file_details.get('sha1'):
+                    entity['sha1'] = file_details['sha1']
+                entities.append(entity)
 
     raw_assigned = inc.get('assignedTo') or ''
     return {
@@ -412,12 +419,18 @@ def _map_graph_alert(alert: dict, incident_id: str) -> dict:
                  ev.get('domainName') or
                  ev.get('displayName') or '')
         if ename:
-            evidence.append({
+            item = {
                 'type': etype or 'Unknown',
                 'name': ename,
                 'verdict': ev.get('verdict', 'unknown'),
                 'remediationStatus': ev.get('remediationStatus', ''),
-            })
+            }
+            file_details = ev.get('fileDetails') or {}
+            if file_details.get('sha256'):
+                item['sha256'] = file_details['sha256']
+            if file_details.get('sha1'):
+                item['sha1'] = file_details['sha1']
+            evidence.append(item)
 
     return {
         'id': alert.get('id', ''),
@@ -610,6 +623,14 @@ def _generate_demo_incidents() -> list:
         'invoice_7291.exe', 'update_patch.dll', 'report_final.scr',
         'readme.hta', 'meeting_notes.js',
     ]
+    # Realistic-looking fake sha256 hashes for demo file entities
+    _demo_sha256 = [
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a',
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+        'd7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592',
+        '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+    ]
     _demo_verdicts = ['malicious', 'suspicious', 'suspicious', 'unknown']
 
     incidents = []
@@ -645,10 +666,13 @@ def _generate_demo_incidents() -> list:
             })
         # Add file entity for hacktool/multi-stage incidents
         if t['type'] in ('Hacktool', 'Multi-stage', 'Discovery'):
+            fname = random.choice(_demo_files)
+            fidx = _demo_files.index(fname)
             entities.append({
                 'type': 'file',
-                'name': random.choice(_demo_files),
+                'name': fname,
                 'verdict': random.choice(_demo_verdicts),
+                'sha256': _demo_sha256[fidx],
             })
 
         incidents.append({
@@ -1636,94 +1660,121 @@ def _try_graph_ti_indicators():
 
 def fetch_virustotal_stats(incidents):
     """
-    Fetch statistics from VirusTotal API
-    Uses real VirusTotal API if key is configured, otherwise generates stats from incident data
+    Fetch statistics from VirusTotal API using real file hashes from Graph evidence.
+    Falls back to incident-based stats when no API key or no hashes available.
+    Rate-limited to 4 requests/minute (VT free tier).
     """
-    # If VirusTotal API key is configured, fetch real data from files in incidents
     vt_key = _cfg('VIRUSTOTAL_API_KEY')
-    if vt_key:
-        print("  🔍 Querying VirusTotal API with real API key...")
-        
-        # Extract file hashes from incidents
-        file_hashes = []
-        for incident in incidents:
-            for entity in incident.get('entities', []):
-                if entity.get('type') == 'File':
-                    filename = entity.get('name', '')
-                    # For demo, we'll generate a sample hash (in production, use real file hash from entity)
-                    if filename and filename.endswith('.exe'):
-                        file_hashes.append(filename)
-        
-        # Query VirusTotal for file statistics
-        malicious_count = 0
-        suspicious_count = 0
-        clean_count = 0
-        total_scanned = 0
-        detection_results = []
-        
+    if not vt_key:
+        return fetch_virustotal_stats_from_incidents(incidents)
+
+    print("  🔍 Querying VirusTotal API with real API key...")
+
+    # ── Collect unique sha256 hashes from incident entities ──────────
+    seen_hashes: set[str] = set()
+    hash_to_file: dict[str, str] = {}          # sha256 → filename for display
+    for incident in incidents:
+        for entity in incident.get('entities', []):
+            sha = entity.get('sha256')
+            if sha and sha not in seen_hashes:
+                seen_hashes.add(sha)
+                hash_to_file[sha] = entity.get('name', sha[:12])
+
+    file_hashes = list(seen_hashes)[:15]        # cap to avoid burning quota
+
+    if not file_hashes:
+        print("  ℹ️  No file hashes in entities — falling back to incident verdicts")
+        return fetch_virustotal_stats_from_incidents(incidents)
+
+    # ── Query VT v3 /files/{sha256} ─────────────────────────────────
+    headers = {'x-apikey': vt_key}
+    malicious_count = 0
+    suspicious_count = 0
+    clean_count = 0
+    total_scanned = 0
+    detection_results: list[dict] = []
+
+    VT_BATCH = 4                                # free-tier burst limit
+    for idx, sha in enumerate(file_hashes):
+        # Rate-limit: pause 60 s after every 4 requests
+        if idx > 0 and idx % VT_BATCH == 0:
+            import time
+            time.sleep(60)
+
         try:
-            headers = {'x-apikey': vt_key}
-            
-            # For each file hash, query VirusTotal (limited to first 5 for demo)
-            for file_hash in file_hashes[:5]:
-                total_scanned += 1
-                # In production, use file hash instead of filename
-                # For now, query a known malicious hash for demonstration
-                sample_hash = '44d88612fea8a8f36de82e1278abb02f'  # EICAR test file
-                
-                try:
-                    response = requests.get(
-                        f'https://www.virustotal.com/api/v3/files/{sample_hash}',
-                        headers=headers,
-                        timeout=10
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        stats = result.get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
-                        
-                        if stats.get('malicious', 0) > 5:
-                            malicious_count += 1
-                            detection_results.append({'name': f'Detected: {file_hash}', 'count': stats.get('malicious', 0)})
-                        elif stats.get('suspicious', 0) > 0:
-                            suspicious_count += 1
-                        else:
-                            clean_count += 1
-                    else:
-                        # File not found, count as clean
-                        clean_count += 1
-                        
-                except requests.exceptions.RequestException as e:
-                    print(f"  ⚠️  API request failed for {file_hash}: {e}")
-                    clean_count += 1
-                    
-        except Exception as e:
-            print(f"  ⚠️  VirusTotal API error: {e}")
-            # Fall back to incident-based stats
-            return fetch_virustotal_stats_from_incidents(incidents)
-        
-        # Count URL/phishing incidents
-        url_incidents = sum(1 for i in incidents if 'email' in i.get('title', '').lower() or 'phish' in i.get('title', '').lower())
-        malicious_urls = sum(1 for i in incidents if i.get('severity') in ['High', 'Medium'] and 'email' in i.get('title', '').lower())
-        
-        detection_rate = (malicious_count / total_scanned * 100) if total_scanned > 0 else 0
-        
-        print(f"  ✅ VirusTotal API: Scanned {total_scanned} files, {malicious_count} malicious")
-        
-        return {
-            'source': 'virustotal_api',
-            'filesScanned': total_scanned,
-            'maliciousFiles': malicious_count,
-            'suspiciousFiles': suspicious_count,
-            'cleanFiles': clean_count,
-            'urlsScanned': url_incidents,
-            'maliciousUrls': malicious_urls,
-            'detectionRate': round(detection_rate, 1),
-            'topThreats': detection_results[:5] if detection_results else [{'name': 'No threats detected', 'count': 0}]
-        }
-    
-    # Fallback: Generate from incident data
-    return fetch_virustotal_stats_from_incidents(incidents)
+            resp = requests.get(
+                f'https://www.virustotal.com/api/v3/files/{sha}',
+                headers=headers,
+                timeout=15,
+            )
+            total_scanned += 1
+
+            if resp.status_code == 429:
+                print("  ⚠️  VT rate-limit hit — stopping file queries")
+                break
+
+            if resp.status_code == 404:
+                # Hash unknown to VT — treat as unscanned / clean
+                clean_count += 1
+                continue
+
+            if resp.status_code != 200:
+                clean_count += 1
+                continue
+
+            attrs = resp.json().get('data', {}).get('attributes', {})
+            stats = attrs.get('last_analysis_stats', {})
+            mal = stats.get('malicious', 0)
+            sus = stats.get('suspicious', 0)
+
+            if mal > 0:
+                malicious_count += 1
+                label = hash_to_file.get(sha, sha[:12])
+                # Try to get threat classification label
+                threat_cls = attrs.get('popular_threat_classification', {})
+                threat_label = (
+                    threat_cls.get('suggested_threat_label')
+                    or threat_cls.get('popular_threat_category', [{}])[0].get('value')
+                    if threat_cls else None
+                )
+                detection_results.append({
+                    'name': threat_label or f'Detected: {label}',
+                    'count': mal,
+                })
+            elif sus > 0:
+                suspicious_count += 1
+            else:
+                clean_count += 1
+
+        except requests.exceptions.RequestException as exc:
+            print(f"  ⚠️  VT request failed for {sha[:12]}…: {exc}")
+            clean_count += 1
+
+    # ── URL / phishing counts (derived from incident titles) ────────
+    url_incidents = sum(
+        1 for i in incidents
+        if 'email' in i.get('title', '').lower() or 'phish' in i.get('title', '').lower()
+    )
+    malicious_urls = sum(
+        1 for i in incidents
+        if i.get('severity') in ('High', 'Medium')
+        and 'email' in i.get('title', '').lower()
+    )
+
+    detection_rate = (malicious_count / total_scanned * 100) if total_scanned > 0 else 0
+    print(f"  ✅ VirusTotal API: Scanned {total_scanned} files, {malicious_count} malicious")
+
+    return {
+        'source': 'virustotal_api',
+        'filesScanned': total_scanned,
+        'maliciousFiles': malicious_count,
+        'suspiciousFiles': suspicious_count,
+        'cleanFiles': clean_count,
+        'urlsScanned': url_incidents,
+        'maliciousUrls': malicious_urls,
+        'detectionRate': round(detection_rate, 1),
+        'topThreats': detection_results[:5] if detection_results else [{'name': 'No threats detected', 'count': 0}],
+    }
 
 def fetch_virustotal_stats_from_incidents(incidents):
     """
@@ -1733,7 +1784,7 @@ def fetch_virustotal_stats_from_incidents(incidents):
     file_entities = []
     for incident in incidents:
         for entity in incident.get('entities', []):
-            if entity.get('type') == 'File':
+            if entity.get('type', '').lower() == 'file':
                 file_entities.append(entity)
     
     malicious_files = len([e for e in file_entities if e.get('verdict') == 'malicious'])
