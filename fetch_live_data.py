@@ -478,8 +478,10 @@ def normalize_incident_status(raw_status: str | None, default: str = 'Active',
         return default
     canonical = _INCIDENT_STATUS_MAP.get(key, str(raw_status).strip().capitalize())
     # Infer 'New' from Graph 'active' when unassigned
-    if canonical == 'Active' and assigned_to is not None and not assigned_to.strip():
-        return 'New'
+    if canonical == 'Active' and assigned_to is not None:
+        cleaned = assigned_to.strip().lower()
+        if not cleaned or cleaned == 'unassigned':
+            return 'New'
     return canonical
 
 
