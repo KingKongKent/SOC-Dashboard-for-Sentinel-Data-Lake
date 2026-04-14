@@ -556,7 +556,8 @@ def get_metrics_summary(days: int = 30) -> Dict[str, Any]:
             SUM(CASE WHEN severity = 'Low' THEN 1 ELSE 0 END) as low,
             SUM(CASE WHEN severity = 'Informational' THEN 1 ELSE 0 END) as informational,
             SUM(CASE WHEN status IN ('Closed', 'Resolved') THEN 1 ELSE 0 END) as resolved,
-            SUM(CASE WHEN status IN ('Active', 'New', 'InProgress') THEN 1 ELSE 0 END) as active
+            SUM(CASE WHEN status IN ('Active', 'InProgress') THEN 1 ELSE 0 END) as active,
+            SUM(CASE WHEN status = 'New' THEN 1 ELSE 0 END) as new
         FROM incidents
         WHERE created_time >= ?
     ''', (cutoff.isoformat(),))
@@ -571,7 +572,9 @@ def get_metrics_summary(days: int = 30) -> Dict[str, Any]:
         'low': row['low'],
         'informational': row['informational'],
         'resolved': row['resolved'],
-        'active': row['active']
+        'active': row['active'] + row['new'],
+        'new': row['new'],
+        'inProgress': row['active'],
     }
 
 def save_threat_intel_snapshot(source: str, data: Dict[str, Any]):

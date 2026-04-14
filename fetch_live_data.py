@@ -377,16 +377,17 @@ def _map_graph_incident(inc: dict) -> dict:
                     'verdict': ev.get('verdict', 'unknown'),
                 })
 
+    raw_assigned = inc.get('assignedTo') or ''
     return {
         'id': str(inc.get('id', '')),
         'title': inc.get('displayName', 'Untitled'),
         'severity': (inc.get('severity') or 'medium').capitalize(),
-        'status': normalize_incident_status(inc.get('status')),
+        'status': normalize_incident_status(inc.get('status'), assigned_to=raw_assigned),
         'createdTime': inc.get('createdDateTime', ''),
         'lastUpdateTime': inc.get('lastUpdateDateTime', ''),
         'classification': inc.get('classification', 'unknown') or 'unknown',
         'determination': inc.get('determination', 'unknown') or 'unknown',
-        'assignedTo': inc.get('assignedTo', 'Unassigned') or 'Unassigned',
+        'assignedTo': raw_assigned or 'Unassigned',
         'alertCount': len(inc.get('alerts', [])),
         'entities': entities,
         'entityCount': len(entities),
@@ -451,12 +452,22 @@ _INCIDENT_STATUS_MAP = {
 }
 
 
-def normalize_incident_status(raw_status: str | None, default: str = 'Active') -> str:
-    """Normalize Defender/Sentinel status values to canonical dashboard values."""
+def normalize_incident_status(raw_status: str | None, default: str = 'Active',
+                              *, assigned_to: str | None = None) -> str:
+    """Normalize Defender/Sentinel status values to canonical dashboard values.
+
+    Graph v1.0 does not return 'new' — all non-resolved incidents are 'active'.
+    When assigned_to is provided and empty we infer 'New' from 'active' because
+    unassigned incidents in Defender XDR correspond to the Sentinel 'New' status.
+    """
     key = str(raw_status or '').strip().lower().replace('_', '').replace(' ', '')
     if not key:
         return default
-    return _INCIDENT_STATUS_MAP.get(key, str(raw_status).strip().capitalize())
+    canonical = _INCIDENT_STATUS_MAP.get(key, str(raw_status).strip().capitalize())
+    # Infer 'New' from Graph 'active' when unassigned
+    if canonical == 'Active' and assigned_to is not None and not assigned_to.strip():
+        return 'New'
+    return canonical
 
 
 def fetch_defender_incidents_live() -> list | None:
@@ -570,13 +581,14 @@ def _generate_demo_incidents() -> list:
     import random
 
     templates = [
-        {"severity": "Low", "status": "Active", "type": "DLP"},
+        {"severity": "Low", "status": "New", "type": "DLP"},
         {"severity": "High", "status": "Active", "type": "Multi-stage"},
         {"severity": "Medium", "status": "Closed", "type": "AnonymousIP"},
         {"severity": "High", "status": "Active", "type": "PasswordSpray"},
-        {"severity": "Medium", "status": "Active", "type": "Discovery"},
+        {"severity": "Medium", "status": "New", "type": "Discovery"},
         {"severity": "Low", "status": "Active", "type": "RemoteConnection"},
         {"severity": "Medium", "status": "Closed", "type": "Hacktool"},
+        {"severity": "High", "status": "New", "type": "SuspiciousSignIn"},
     ]
 
     # Realistic entity pools for demo data
