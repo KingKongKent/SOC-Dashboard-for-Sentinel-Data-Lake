@@ -77,6 +77,8 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 | `fetch_live_data.py` | All external API calls (Graph, Sentinel, TI) | Adding new data sources, fixing API integration |
 | `auth.py` | Entra ID login flow + decorators | Changing auth logic, adding scopes, modifying session data |
 | `config_manager.py` | Encrypted config CRUD (DB→env fallback) | Adding new configurable keys, changing encryption |
+| `ai_assistant.py` | AI Foundry integration (agent + direct fallback) | Changing AI prompts, MCP tool config, fallback logic |
+| `sentinel_kql.py` | KQL query engine (Log Analytics REST API) | Changing query safety limits, token caching, error handling |
 | `append_data.py` | Incremental DB loader | Changing refresh logic |
 | `hourly_refresh.py` | Scheduler with configurable interval | Changing refresh interval, timeout settings |
 | `soc-dashboard-live.html` | Frontend SPA (auth-gated + settings overlay) | UI changes, new charts/widgets |

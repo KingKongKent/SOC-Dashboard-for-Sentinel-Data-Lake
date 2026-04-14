@@ -1866,11 +1866,10 @@ def fetch_mdti_articles():
 
 def fetch_abuseipdb_stats(incidents):
     """
-    Fetch IP reputation data from AbuseIPDB
-    Extracts IP statistics from real incident data
+    Fetch IP reputation data from AbuseIPDB.
+    If ABUSEIPDB_API_KEY is configured, queries the real API for top unique IPs.
+    Otherwise, derives statistics from incident entity data.
     """
-    import random
-    
     # Extract all IPs from incidents with full context
     all_ips = []
     for incident in incidents:
@@ -1883,6 +1882,84 @@ def fetch_abuseipdb_stats(incidents):
                     'incidentId': incident.get('id'),
                     'incidentTitle': incident.get('title')
                 })
+
+    unique_ips = list(set(ip['ip'] for ip in all_ips if ip.get('ip')))
+
+    # ── Real AbuseIPDB API path ──
+    api_key = _cfg('ABUSEIPDB_API_KEY')
+    if api_key and unique_ips:
+        print("  🌐 AbuseIPDB: querying real API for up to 20 IPs…")
+        headers = {'Key': api_key, 'Accept': 'application/json'}
+        checked = []
+        malicious_list = []
+        country_counts = {}
+        high_conf = medium_conf = low_conf = 0
+        # Only check top 20 unique IPs to stay within free-tier rate limits
+        for ip_addr in unique_ips[:20]:
+            try:
+                resp = requests.get(
+                    'https://api.abuseipdb.com/api/v2/check',
+                    headers=headers,
+                    params={'ipAddress': ip_addr, 'maxAgeInDays': 90, 'verbose': ''},
+                    timeout=8
+                )
+                if resp.status_code == 200:
+                    d = resp.json().get('data', {})
+                    score = d.get('abuseConfidenceScore', 0)
+                    country = d.get('countryCode', 'Unknown')
+                    is_malicious = score >= 25
+                    entry = {
+                        'ip': ip_addr,
+                        'abuseScore': score,
+                        'country': country,
+                        'isp': d.get('isp', ''),
+                        'domain': d.get('domain', ''),
+                        'totalReports': d.get('totalReports', 0),
+                        'verdict': 'malicious' if score >= 75 else 'suspicious' if score >= 25 else 'clean',
+                    }
+                    # Attach incident context
+                    for ip_rec in all_ips:
+                        if ip_rec['ip'] == ip_addr:
+                            entry['severity'] = ip_rec.get('severity')
+                            entry['incidentId'] = ip_rec.get('incidentId')
+                            entry['incidentTitle'] = ip_rec.get('incidentTitle')
+                            break
+                    checked.append(entry)
+                    if is_malicious:
+                        malicious_list.append(entry)
+                        country_counts[country] = country_counts.get(country, 0) + 1
+                        if score >= 75:
+                            high_conf += 1
+                        elif score >= 50:
+                            medium_conf += 1
+                        else:
+                            low_conf += 1
+                elif resp.status_code == 429:
+                    print("  ⚠️  AbuseIPDB rate limit reached, stopping lookups")
+                    break
+                else:
+                    print(f"  ⚠️  AbuseIPDB returned HTTP {resp.status_code} for {ip_addr}")
+            except requests.exceptions.Timeout:
+                print(f"  ⚠️  AbuseIPDB timeout for {ip_addr}")
+            except Exception as e:
+                print(f"  ⚠️  AbuseIPDB error for {ip_addr}: {e}")
+
+        countries = [
+            {'country': k, 'count': v}
+            for k, v in sorted(country_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+        print(f"  ✅ AbuseIPDB: checked {len(checked)} IPs, {len(malicious_list)} malicious")
+        return {
+            'source': 'abuseipdb_api',
+            'maliciousCount': len(malicious_list),
+            'reportedIPs': len(checked),
+            'abuseConfidence': {'high': high_conf, 'medium': medium_conf, 'low': low_conf},
+            'topCountries': countries,
+            'maliciousIPs': malicious_list
+        }
+
+    # ── Fallback: derive from incident entities ──
+    import random
     
     # Count malicious IPs
     malicious_ips = [ip for ip in all_ips if ip['verdict'] in ['malicious', 'suspicious']]

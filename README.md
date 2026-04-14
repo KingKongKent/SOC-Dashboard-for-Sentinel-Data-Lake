@@ -1,4 +1,4 @@
-# SOC Dashboard for Microsoft Defender XDR
+# SOC Dashboard with Defender XDR, Sentinel, KQL, and AI Assistant
 
 Automated Security Operations Center dashboard integrating **Microsoft Defender XDR**, **Microsoft Sentinel**, and **Threat Intelligence** feeds. Entra ID authentication, encrypted config management, SQLite persistence, and real-time incident actions (assign, escalate with email notification).
 
@@ -125,6 +125,8 @@ Credentials are saved to the encrypted config database — no need to SSH in and
 
 **Gunicorn (not Flask dev server):** Production must use gunicorn via `dashboard.service`. Flask's dev server is single-threaded and unsuitable.
 
+**Systemd HOME with `ProtectHome=true`:** If home-directory hardening is enabled, set `HOME` in `dashboard.service` to a writable non-home path (for example `/var/lib/soc-dashboard`). This prevents Gunicorn startup errors like `Control server error: [Errno 13] Permission denied: '/home/socdash'`.
+
 **SQLite concurrency:** With multiple gunicorn workers writing simultaneously, you may see "database is locked" errors. Enable WAL mode if needed: `PRAGMA journal_mode=WAL`.
 
 ### TLS Certificate
@@ -224,12 +226,16 @@ SENTINEL_WORKSPACE_NAME=your-workspace-name
 # Optional — Threat Intel API Keys
 VIRUSTOTAL_API_KEY=
 ABUSEIPDB_API_KEY=
+TALOS_API_KEY=
 
 # Optional — Escalation
 ESCALATION_EMAIL=soc-team@yourdomain.com
 
 # Optional — Operational
 REFRESH_INTERVAL_MINUTES=60
+INCIDENTS_DISPLAY_LIMIT=100
+MDTI_ENABLED=true
+CLOSE_INCIDENT_ENABLED=false
 DB_PATH=/var/lib/soc-dashboard/soc_dashboard.db
 CONFIG_KEY_PATH=/var/lib/soc-dashboard/.encryption_key
 ```
@@ -260,10 +266,15 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 | `/api/database-stats` | GET | `@require_login` | Row counts and date ranges |
 | `/api/incidents/<id>/assign` | POST | `@require_login` | Assigns incident in Defender XDR + local DB |
 | `/api/incidents/<id>/escalate` | POST | `@require_login` | Bumps severity to High, adds tag + comment, sends email |
+| `/api/incidents/<id>/close` | POST | `@require_login` | Closes incident in Defender XDR with classification + determination (requires `CLOSE_INCIDENT_ENABLED`) |
 | `/api/settings` | GET | `@require_admin` | Returns all config (secrets masked) |
 | `/api/settings` | PUT | `@require_admin` | Updates config values |
 | `/api/settings/test-connection` | POST | `@require_admin` | Tests Graph API connectivity |
 | `/api/refresh` | POST | `@require_admin` | Triggers immediate data refresh |
+| `/api/features` | GET | `@require_login` | Returns feature toggle states (JSON) |
+| `/api/sentinel/query` | POST | `@require_login` | Execute a KQL query (requires `KQL_CONSOLE_ENABLED`) |
+| `/api/sentinel/ai` | POST | `@require_login` | Ask the AI assistant (requires `AI_ASSISTANT_ENABLED`) |
+| `/api/incidents/<id>/attack-story` | POST | `@require_login` | Generate/retrieve AI attack story (requires `AI_ASSISTANT_ENABLED`) |
 
 ---
 
@@ -273,14 +284,18 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 |------|--------|
 | **Authentication** | Entra ID OAuth2 with MSAL, admin role via email list |
 | **Secure Score** | Live from Microsoft Graph API with category breakdown |
-| **Incidents** | Timeline filtering (7d–90d), severity & status filters, hide-redirected toggle |
-| **Incident Actions** | Assign to Me, Escalate (severity bump + email notification) — updates Defender XDR via Graph API |
+| **Incidents** | Timeline filtering (7d–90d), severity & status filters, hide-redirected toggle, configurable table row limit (`INCIDENTS_DISPLAY_LIMIT`) |
+| **Incident Actions** | Assign to Me, Escalate (severity bump + email notification), and optional Close Incident action with Graph classification/determination |
 | **Local Case Tracking** | Per-incident notes, status tagging, and deep-link to Defender Cases portal |
 | **Alerts** | Linked to incidents, product and detection source breakdown |
 | **Threat Intel** | IOC extraction (IPs, URLs, users, files, devices) from incident entities, VirusTotal, AbuseIPDB, MDTI articles |
 | **Redirected Incidents** | Detected and labeled with target incident link; hidden by default to reduce noise |
 | **Admin Settings** | Web UI for managing API keys, refresh interval, escalation email |
 | **Encrypted Config** | Secrets stored with Fernet encryption in SQLite |
+| **AI Assistant** | Chat-based security analysis via Azure AI Foundry with Sentinel MCP tools (agent mode) and direct OpenAI fallback. Auto-executes KQL from responses. Toggle: `AI_ASSISTANT_ENABLED` |
+| **KQL Console** | Run ad-hoc KQL queries against Log Analytics with 11 built-in templates, Ctrl+Enter shortcut, and tabular results. Toggle: `KQL_CONSOLE_ENABLED` |
+| **Attack Stories** | AI-generated incident narratives cached in SQLite — timeline, entities, MITRE mapping, next steps |
+| **Feature Toggles** | 7 admin-controlled toggles: AI Assistant, KQL Console, Defender TI Articles (requires ThreatIntelligence.Read.All + Defender TI license), AI Auto-Enrich, AI Auto-Comment, Close Incident, Logs Viewer |
 | **Auto-Refresh** | systemd timer (hourly) + configurable interval via settings |
 
 ## Project Structure
@@ -292,6 +307,8 @@ SOC-Dashboard/
 ├── fetch_live_data.py         # Graph API data fetchers + write helpers (assign, escalate, email)
 ├── auth.py                    # Entra ID MSAL login flow + @require_login / @require_admin
 ├── config_manager.py          # Encrypted config CRUD (DB → env fallback)
+├── ai_assistant.py            # AI Foundry integration — agent (MCP tools) + direct fallback
+├── sentinel_kql.py            # KQL query engine — Log Analytics REST API
 ├── append_data.py             # Incremental data append logic
 ├── hourly_refresh.py          # Scheduler with timeout wrapper
 ├── soc-dashboard-live.html    # Single-page dashboard frontend (Chart.js, vanilla JS)
@@ -359,7 +376,8 @@ SOC-Dashboard/
 - [ ] WebSocket live streaming for instant updates
 - [ ] Multi-workspace support
 - [ ] Export incident reports to PDF/Excel
-- [ ] Custom KQL query builder
+- [x] Custom KQL query builder
+- [x] AI Assistant with Sentinel MCP tools (Azure AI Foundry)
 - [ ] Rate limiting on API endpoints
 
 ## License

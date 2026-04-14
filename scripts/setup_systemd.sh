@@ -36,6 +36,7 @@ User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
 Environment=PATH=${VENV_DIR}/bin:/usr/bin
+Environment=HOME=${DB_DIR}
 EnvironmentFile=${CONF_DIR}/.env
 ExecStart=${VENV_DIR}/bin/gunicorn \
     --workers ${WORKERS} \

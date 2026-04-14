@@ -30,10 +30,17 @@ graph TB
         HOURLY["hourly_refresh.py<br/>(schedule lib)"]
     end
 
+    subgraph "AI & KQL"
+        AI["ai_assistant.py<br/>(Foundry agent + MCP)"]
+        KQL["sentinel_kql.py<br/>(Log Analytics REST)"]
+        IOC["ioc_upload.py<br/>(Sentinel TI API)"]
+    end
+
     subgraph "External APIs"
         GRAPH["Microsoft Graph API<br/>(Secure Score, MDTI)"]
         DEFENDER["Microsoft Defender XDR<br/>(Incidents, Alerts)"]
         SENTINEL["Microsoft Sentinel<br/>(KQL via Data Lake)"]
+        FOUNDRY["Azure AI Foundry<br/>(OpenAI)"]
         VT["VirusTotal API"]
         ABUSE["AbuseIPDB API"]
         TALOS["Cisco Talos"]
@@ -44,6 +51,9 @@ graph TB
     BACKEND --> DBMOD
     DBMOD --> DB
     BACKEND --> FETCH
+    BACKEND --> AI
+    BACKEND --> KQL
+    BACKEND --> IOC
 
     HOURLY -->|"every 1 h"| APPEND
     APPEND --> DBMOD
@@ -55,6 +65,9 @@ graph TB
     FETCH --> VT
     FETCH --> ABUSE
     FETCH --> TALOS
+    AI --> FOUNDRY
+    AI --> SENTINEL
+    IOC --> SENTINEL
 ```
 
 ## Data Flow
@@ -152,6 +165,8 @@ All credentials and settings are managed through `config_manager.py` with two-ti
 | `threat_intel_snapshots` | Point-in-time TI data | timestamp, source, data (JSON) |
 | `metrics_snapshots` | Dashboard metrics over time | timestamp, secure_score, severity counts |
 | `config` | App configuration & encrypted secrets | key (PK), value, is_encrypted, updated_at |
+| `attack_stories` | Cached AI-generated incident analyses | incident_id (PK), story (TEXT), model, created_at |
+| `cases` | Analyst-created investigation cases | id (PK), incident_id, title, notes, status, created_by, created_at |
 
 ### Indexes
 - `idx_incidents_created` — fast date range queries
@@ -171,6 +186,8 @@ All credentials and settings are managed through `config_manager.py` with two-ti
 | Encryption | cryptography (Fernet) for config secrets |
 | HTTP | requests 2.32 |
 | Scheduler | schedule 1.2 / systemd timer (production) |
+| AI | Azure AI Foundry (OpenAI), azure-identity, Sentinel MCP tools |
+| KQL | Log Analytics REST API (ad-hoc queries from frontend) |
 | Config | python-dotenv 1.0 |
 | WSGI | gunicorn (production) |
 | Reverse Proxy | nginx with TLS |

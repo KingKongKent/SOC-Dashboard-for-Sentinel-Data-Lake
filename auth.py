@@ -26,6 +26,10 @@ def _cfg(key: str, default: str = '') -> str:
 
 SCOPES = ['User.Read', 'Mail.Send', 'ChannelMessage.Send']
 
+# MCP scopes for Sentinel Data Lake and Triage (consented at login, acquired silently later)
+SENTINEL_MCP_USER_SCOPE = ['4500ebfb-89b6-4b14-a480-7f749797bfcd/.default']
+TRIAGE_MCP_USER_SCOPE = ['https://mcp.securitycenter.microsoft.com/MCP.Read.All']
+
 
 def _get_authority() -> str:
     """Use tenant-specific authority if TENANT_ID is set, otherwise /common."""
@@ -189,6 +193,16 @@ def get_user_token(scopes: list[str] | None = None) -> str | None:
     if result and 'access_token' in result:
         return result['access_token']
     return None
+
+
+def get_user_sentinel_token() -> str | None:
+    """Get a delegated token for the Sentinel Data Lake MCP server."""
+    return get_user_token(scopes=SENTINEL_MCP_USER_SCOPE)
+
+
+def get_user_triage_token() -> str | None:
+    """Get a delegated token for the Defender Triage MCP server."""
+    return get_user_token(scopes=TRIAGE_MCP_USER_SCOPE)
 
 
 def get_current_user():

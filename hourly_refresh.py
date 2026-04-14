@@ -37,6 +37,51 @@ def _reschedule_if_changed():
         _current_interval = desired
 
 
+def _poll_due_feeds():
+    """Check enabled IOC feeds and poll any that are due."""
+    try:
+        from config_manager import get_config
+        val = (get_config('IOC_UPLOAD_ENABLED') or '').strip().lower()
+        if val not in ('true', '1', 'yes', 'on'):
+            return  # feature disabled
+
+        from database import get_feeds
+        feeds = get_feeds(enabled_only=True)
+        if not feeds:
+            return
+
+        now = datetime.now()
+        from ioc_upload import poll_feed
+        for feed in feeds:
+            last = feed.get('last_poll')
+            if last:
+                try:
+                    last_dt = datetime.fromisoformat(last)
+                except (ValueError, TypeError):
+                    last_dt = datetime.min
+            else:
+                last_dt = datetime.min
+            interval_hours = feed.get('poll_interval_hours', 24)
+            if (now - last_dt).total_seconds() >= interval_hours * 3600:
+                print(f"🛡️  Polling feed: {feed['name']} ({feed['url'][:60]})")
+                try:
+                    result = poll_feed(
+                        feed_id=feed['id'],
+                        url=feed['url'],
+                        feed_format=feed['format'],
+                        ioc_type_default=feed.get('ioc_type_default', 'ipv4-addr'),
+                        source=f'Feed: {feed["name"]}',
+                    )
+                    print(f"   ✅ {result.get('uploaded', 0)} new IOCs uploaded, "
+                          f"{result.get('failed', 0)} failed")
+                except Exception as exc:
+                    print(f"   ❌ Feed poll failed: {exc}")
+    except ImportError:
+        pass  # ioc_upload or database not available
+    except Exception as e:
+        print(f"⚠️ Feed polling error: {e}")
+
+
 def hourly_refresh_job():
     """
     Job that runs hourly to fetch and append new data
@@ -62,6 +107,9 @@ def hourly_refresh_job():
         print(f"\n❌ Error during hourly refresh: {e}")
         import traceback
         traceback.print_exc()
+
+    # ── IOC Feed Polling ─────────────────────────────
+    _poll_due_feeds()
     
     print("="*70)
     print(f"⏳ Next refresh scheduled for: {datetime.now().hour + 1:02d}:00")

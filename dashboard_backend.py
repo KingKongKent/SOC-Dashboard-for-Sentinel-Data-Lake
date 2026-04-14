@@ -20,6 +20,7 @@ try:
         init_database,
         update_incident_field,
         create_case, get_cases, get_case, update_case, delete_case,
+        save_attack_story, get_attack_story,
     )
     from fetch_live_data import (
         fetch_secure_score, calculate_daily_alert_volume, get_last_incident_source,
@@ -54,6 +55,8 @@ from auth import (
     handle_logout,
     get_current_user,
     get_user_token,
+    get_user_sentinel_token,
+    get_user_triage_token,
 )
 from config_manager import get_config, set_config, get_all_config
 
@@ -97,7 +100,7 @@ def set_security_headers(response):
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "img-src 'self' data:; "
         "font-src 'self' https://cdn.jsdelivr.net; "
-        "connect-src 'self'; "
+        "connect-src 'self' https://api.loganalytics.io; "
         "form-action 'self' https://login.microsoftonline.com"
     )
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -225,8 +228,16 @@ def update_settings():
         'CLIENT_ID', 'CLIENT_SECRET', 'TENANT_ID',
         'SENTINEL_WORKSPACE_ID', 'SENTINEL_WORKSPACE_NAME',
         'VIRUSTOTAL_API_KEY', 'TALOS_API_KEY', 'ABUSEIPDB_API_KEY',
-        'REFRESH_INTERVAL_MINUTES', 'ESCALATION_EMAIL',
+        'REFRESH_INTERVAL_MINUTES', 'INCIDENTS_DISPLAY_LIMIT', 'ESCALATION_EMAIL',
         'TEAMS_CHANNEL_ID', 'TEAMS_WEBHOOK_URL', 'ESCALATION_METHODS',
+        'FOUNDRY_ENDPOINT', 'FOUNDRY_DEPLOYMENT',
+        'FOUNDRY_PROJECT_ENDPOINT', 'FOUNDRY_AGENT_NAME',
+        'AI_ASSISTANT_ENABLED', 'KQL_CONSOLE_ENABLED',
+        'MDTI_ENABLED',
+        'AI_AUTO_ENRICH_ENABLED', 'AI_AUTO_COMMENT_ENABLED',
+        'CLOSE_INCIDENT_ENABLED',
+        'LOGS_ENABLED',
+        'IOC_UPLOAD_ENABLED',
     }
     updated = []
     for key, value in payload.items():
@@ -355,10 +366,16 @@ def get_dashboard_data_from_db():
         
         # Build response
         refresh_interval = int(get_config('REFRESH_INTERVAL_MINUTES', '60') or '60')
+        try:
+            incidents_display_limit = int(get_config('INCIDENTS_DISPLAY_LIMIT', '100') or '100')
+        except (TypeError, ValueError):
+            incidents_display_limit = 100
+        incidents_display_limit = max(10, min(1000, incidents_display_limit))
         data = {
             'timestamp': datetime.now().isoformat(),
             'dataSource': 'sqlite_database',
             'refreshInterval': refresh_interval,
+            'incidentsDisplayLimit': incidents_display_limit,
             'filters': {
                 'days': days,
                 'start_date': start_date,
@@ -584,6 +601,82 @@ def escalate_incident(incident_id):
         return jsonify({'error': 'Failed to escalate incident'}), 502
 
 
+@app.route('/api/incidents/<incident_id>/close', methods=['POST'])
+@require_login
+def close_incident(incident_id):
+    """Close a Graph Security incident with Graph-supported status fields."""
+    if not _feature_enabled('CLOSE_INCIDENT_ENABLED'):
+        return jsonify({'error': 'Close Incident is disabled — enable it in Settings'}), 403
+    if not str(incident_id).isdigit():
+        return jsonify({'error': 'Only Graph incidents (numeric ID) can be closed'}), 400
+
+    user = session.get('user', {})
+    email = user.get('email', '')
+    name = user.get('name', email)
+    body = request.get_json(silent=True) or {}
+
+    allowed_classifications = {
+        'unknown',
+        'falsePositive',
+        'truePositive',
+        'informationalExpectedActivity',
+    }
+    allowed_determinations = {
+        'unknown',
+        'apt',
+        'malware',
+        'securityPersonnel',
+        'securityTesting',
+        'unwantedSoftware',
+        'other',
+        'multiStagedAttack',
+        'compromisedAccount',
+        'phishing',
+        'maliciousUserActivity',
+        'notMalicious',
+        'notEnoughData',
+    }
+
+    classification = body.get('classification', 'truePositive')
+    determination = body.get('determination', 'multiStagedAttack')
+    comment = (body.get('comment') or '').strip()
+
+    if classification not in allowed_classifications:
+        return jsonify({'error': 'Invalid classification'}), 400
+    if determination not in allowed_determinations:
+        return jsonify({'error': 'Invalid determination'}), 400
+
+    try:
+        graph_patch_incident(incident_id, {
+            'status': 'resolved',
+            'classification': classification,
+            'determination': determination,
+            'customTags': ['ClosedBySOCDashboard'],
+        })
+        graph_post_comment(
+            incident_id,
+            f'CLOSED by {name} ({email}) via SOC Dashboard.\n'
+            f'Classification: {classification}\n'
+            f'Determination: {determination}\n'
+            f'Comment: {comment or "N/A"}'
+        )
+
+        update_incident_field(incident_id, 'status', 'Resolved')
+        update_incident_field(incident_id, 'classification', classification)
+        update_incident_field(incident_id, 'determination', determination)
+
+        print(f'✅ Incident {incident_id} closed by {email}')
+        return jsonify({
+            'success': True,
+            'status': 'Resolved',
+            'classification': classification,
+            'determination': determination,
+        })
+    except Exception as exc:
+        print(f'❌ Close incident {incident_id} failed: {exc}')
+        return jsonify({'error': 'Failed to close incident'}), 502
+
+
 # ─── Cases CRUD API ──────────────────────────────────────────────────────────
 
 @app.route('/api/cases', methods=['GET'])
@@ -658,6 +751,364 @@ def delete_case_route(case_id):
         return jsonify({'error': 'Case not found'}), 404
     print(f'🗑️  Case #{case_id} deleted by {session.get("user", {}).get("email", "?")}')
     return jsonify({'success': True})
+
+
+# ── Feature toggles API ─────────────────────────
+
+def _feature_enabled(key: str) -> bool:
+    """Check if a feature toggle is enabled (truthy string)."""
+    val = (get_config(key) or '').strip().lower()
+    return val in ('true', '1', 'yes', 'on')
+
+
+@app.route('/api/features')
+@require_login
+def get_features():
+    """Return current feature toggle states."""
+    try:
+        incidents_display_limit = int(get_config('INCIDENTS_DISPLAY_LIMIT', '100') or '100')
+    except (TypeError, ValueError):
+        incidents_display_limit = 100
+    incidents_display_limit = max(10, min(1000, incidents_display_limit))
+    mdti_raw = (get_config('MDTI_ENABLED', 'true') or 'true').strip().lower()
+    mdti_enabled = mdti_raw in ('true', '1', 'yes', 'on')
+    return jsonify({
+        'ai_assistant': _feature_enabled('AI_ASSISTANT_ENABLED'),
+        'kql_console': _feature_enabled('KQL_CONSOLE_ENABLED'),
+        'mdti_enabled': mdti_enabled,
+        'ai_auto_enrich': _feature_enabled('AI_AUTO_ENRICH_ENABLED'),
+        'ai_auto_comment': _feature_enabled('AI_AUTO_COMMENT_ENABLED'),
+        'close_incident': _feature_enabled('CLOSE_INCIDENT_ENABLED'),
+        'logs_enabled': _feature_enabled('LOGS_ENABLED'),
+        'ioc_upload': _feature_enabled('IOC_UPLOAD_ENABLED'),
+        'incidents_display_limit': incidents_display_limit,
+    })
+
+
+# ── KQL Console API ─────────────────────────────
+
+@app.route('/api/sentinel/query', methods=['POST'])
+@require_login
+def sentinel_query():
+    """Execute a KQL query against Log Analytics."""
+    if not _feature_enabled('KQL_CONSOLE_ENABLED'):
+        return jsonify({'error': 'KQL Console is disabled — enable it in Settings'}), 403
+    payload = request.get_json(silent=True)
+    if not payload or not payload.get('query'):
+        return jsonify({'error': 'Missing query'}), 400
+    try:
+        from sentinel_kql import run_kql
+        rows = run_kql(payload['query'])
+        return jsonify({'columns': list(rows[0].keys()) if rows else [], 'rows': rows})
+    except (ValueError, RuntimeError) as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception:
+        return jsonify({'error': 'KQL query failed — check server logs'}), 500
+
+
+# ── AI Assistant API ─────────────────────────────
+
+@app.route('/api/sentinel/ai', methods=['POST'])
+@require_login
+def sentinel_ai():
+    """Ask the AI assistant a security question."""
+    if not _feature_enabled('AI_ASSISTANT_ENABLED'):
+        return jsonify({'error': 'AI Assistant is disabled — enable it in Settings'}), 403
+    payload = request.get_json(silent=True)
+    if not payload or not payload.get('question'):
+        return jsonify({'error': 'Missing question'}), 400
+    try:
+        from ai_assistant import ask_agent
+        user_token = get_user_sentinel_token()
+        triage_token = get_user_triage_token()
+        result = ask_agent(
+            payload['question'],
+            payload.get('history'),
+            user_token=user_token,
+            triage_token=triage_token,
+        )
+        return jsonify(result)
+    except Exception:
+        return jsonify({'error': 'AI request failed — check server logs'}), 500
+
+
+# ── Attack Story API ─────────────────────────────
+
+@app.route('/api/incidents/<incident_id>/attack-story', methods=['POST'])
+@require_login
+def incident_attack_story(incident_id):
+    """Generate or retrieve a cached AI attack story for an incident."""
+    if not _feature_enabled('AI_ASSISTANT_ENABLED'):
+        return jsonify({'error': 'AI Assistant is disabled'}), 403
+
+    # Check cache first
+    cached = get_attack_story(incident_id)
+    if cached:
+        return jsonify({'story': cached['story'], 'model': cached.get('model', ''), 'cached': True})
+
+    try:
+        from ai_assistant import ask_agent
+        user_token = get_user_sentinel_token()
+        triage_token = get_user_triage_token()
+        question = f'Investigate incident {incident_id}. Provide a full attack story: timeline, entities, MITRE tactics, and recommended next steps.'
+        result = ask_agent(question, user_token=user_token, triage_token=triage_token)
+        story = result.get('answer', '')
+        if story:
+            model = get_config('FOUNDRY_DEPLOYMENT') or ''
+            save_attack_story(incident_id, story, model)
+        return jsonify({'story': story, 'model': get_config('FOUNDRY_DEPLOYMENT') or '', 'cached': False})
+    except Exception:
+        return jsonify({'error': 'Failed to generate attack story — check server logs'}), 500
+
+
+@app.route('/api/incidents/<incident_id>/ai-enrich', methods=['POST'])
+@require_login
+def incident_ai_enrich(incident_id):
+    """AI-analyse an incident and post the analysis as a Sentinel comment."""
+    if not _feature_enabled('AI_ASSISTANT_ENABLED'):
+        return jsonify({'error': 'AI Assistant is disabled'}), 403
+
+    body = request.get_json(silent=True) or {}
+    title = body.get('title', f'Incident {incident_id}')
+    severity = body.get('severity', 'unknown')
+    entities = body.get('entities') or []
+    mitre = body.get('mitreTechniques') or []
+
+    # Build a context-rich prompt so the AI skips discovery
+    entity_lines = '\n'.join(f'  - {e.get("type","?")}: {e.get("name","?")} (verdict: {e.get("verdict","unknown")})' for e in entities[:30])
+    prompt = (
+        f'Analyse Microsoft Sentinel incident {incident_id}.\n'
+        f'Title: {title}\nSeverity: {severity}\n'
+        + (f'Entities:\n{entity_lines}\n' if entity_lines else '')
+        + (f'MITRE Techniques: {", ".join(mitre)}\n' if mitre else '')
+        + '\nProvide:\n1. Brief summary of what happened\n'
+        '2. Risk assessment (Critical/High/Medium/Low) with justification\n'
+        '3. Affected assets and accounts\n'
+        '4. MITRE ATT&CK mapping if applicable\n'
+        '5. Recommended response actions\n'
+        'Be concise — max 1500 characters.'
+    )
+
+    try:
+        from ai_assistant import ask_agent
+        user_token = get_user_sentinel_token()
+        triage_token = get_user_triage_token()
+        result = ask_agent(prompt, user_token=user_token, triage_token=triage_token)
+        analysis = result.get('answer', '')
+        if not analysis:
+            return jsonify({'error': 'AI returned an empty analysis'}), 502
+
+        # Post as comment to Sentinel via Graph API
+        comment_posted = False
+        if str(incident_id).isdigit():
+            try:
+                comment_text = f'[SOC Dashboard — AI Analysis]\n\n{analysis[:2000]}'
+                graph_post_comment(incident_id, comment_text)
+                comment_posted = True
+            except Exception:
+                pass  # non-fatal — still return the analysis
+
+        return jsonify({'analysis': analysis, 'comment_posted': comment_posted})
+    except Exception:
+        return jsonify({'error': 'AI enrichment failed — check server logs'}), 500
+
+
+# ── IOC Upload API (admin-only) ─────────────────
+
+@app.route('/api/ioc/upload', methods=['POST'])
+@require_admin
+def ioc_upload_single():
+    """Upload a single IOC to Sentinel."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled — enable it in Settings'}), 403
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({'error': 'Missing JSON payload'}), 400
+    ioc_type = body.get('type', '').strip()
+    value = body.get('value', '').strip()
+    if not ioc_type or not value:
+        return jsonify({'error': 'Missing type or value'}), 400
+    try:
+        from ioc_upload import upload_single_ioc
+        result = upload_single_ioc(
+            ioc_type=ioc_type,
+            value=value,
+            confidence=int(body.get('confidence', 50)),
+            description=body.get('description', ''),
+            tags=body.get('tags') if isinstance(body.get('tags'), list) else [],
+            valid_until=body.get('validUntil'),
+        )
+        print(f'🛡️  IOC uploaded: {ioc_type}={value} by {session.get("user", {}).get("email", "?")}')
+        return jsonify({'success': True, 'indicator': result})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except RuntimeError:
+        return jsonify({'error': 'Failed to upload IOC to Sentinel'}), 502
+
+
+@app.route('/api/ioc/upload-csv', methods=['POST'])
+@require_admin
+def ioc_upload_csv():
+    """Upload IOCs from a CSV file."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled — enable it in Settings'}), 403
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'error': 'No file uploaded'}), 400
+    if not f.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'Only .csv files are accepted'}), 400
+    content = f.read().decode('utf-8', errors='replace')
+    # Limit size: 10 MB
+    if len(content) > 10 * 1024 * 1024:
+        return jsonify({'error': 'CSV file too large (max 10 MB)'}), 400
+    try:
+        from ioc_upload import parse_csv, upload_bulk_iocs
+        iocs = parse_csv(content)
+        if not iocs:
+            return jsonify({'error': 'No valid IOCs found in CSV'}), 400
+        result = upload_bulk_iocs(iocs, source='CSV Upload')
+        user = session.get('user', {}).get('email', '?')
+        print(f'🛡️  CSV upload: {result["uploaded"]} OK, {result["failed"]} failed — by {user}')
+        return jsonify({'success': True, **result})
+    except Exception:
+        return jsonify({'error': 'Failed to process CSV upload'}), 500
+
+
+@app.route('/api/ioc/stream-import', methods=['POST'])
+@require_admin
+def ioc_stream_import():
+    """One-time import from a URL feed."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled — enable it in Settings'}), 403
+    body = request.get_json(silent=True)
+    if not body or not body.get('url'):
+        return jsonify({'error': 'Missing feed URL'}), 400
+    try:
+        from ioc_upload import fetch_feed, upload_bulk_iocs
+        feed_format = body.get('format', 'plaintext')
+        ioc_type = body.get('iocType', 'ipv4-addr')
+        iocs = fetch_feed(body['url'], feed_format, ioc_type)
+        if not iocs:
+            return jsonify({'error': 'No IOCs found in feed'}), 400
+        result = upload_bulk_iocs(iocs, source=f'Stream: {body["url"][:80]}')
+        user = session.get('user', {}).get('email', '?')
+        print(f'🛡️  Stream import: {result["uploaded"]} OK from {body["url"][:60]} — by {user}')
+        return jsonify({'success': True, **result})
+    except Exception:
+        return jsonify({'error': 'Failed to import feed'}), 502
+
+
+@app.route('/api/ioc/feeds', methods=['GET'])
+@require_admin
+def ioc_list_feeds():
+    """List all configured IOC feeds."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled'}), 403
+    from database import get_feeds
+    return jsonify(get_feeds())
+
+
+@app.route('/api/ioc/feeds', methods=['POST'])
+@require_admin
+def ioc_add_feed():
+    """Add a new IOC feed."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled'}), 403
+    body = request.get_json(silent=True)
+    if not body or not body.get('name') or not body.get('url'):
+        return jsonify({'error': 'Missing name or url'}), 400
+    from database import save_feed
+    feed_id = save_feed(
+        name=body['name'],
+        url=body['url'],
+        fmt=body.get('format', 'plaintext'),
+        poll_interval_hours=int(body.get('pollIntervalHours', 24)),
+        ioc_type_default=body.get('iocTypeDefault', 'ipv4-addr'),
+    )
+    print(f'🛡️  Feed added: {body["name"]} (#{feed_id})')
+    return jsonify({'success': True, 'id': feed_id}), 201
+
+
+@app.route('/api/ioc/feeds/<int:feed_id>', methods=['DELETE'])
+@require_admin
+def ioc_delete_feed(feed_id):
+    """Remove an IOC feed."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled'}), 403
+    from database import delete_feed
+    if delete_feed(feed_id):
+        print(f'🗑️  Feed #{feed_id} deleted')
+        return jsonify({'success': True})
+    return jsonify({'error': 'Feed not found'}), 404
+
+
+@app.route('/api/ioc/feeds/<int:feed_id>', methods=['PUT'])
+@require_admin
+def ioc_update_feed(feed_id):
+    """Update an IOC feed."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled'}), 403
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({'error': 'Missing JSON payload'}), 400
+    from database import update_feed
+    update_feed(feed_id, body)
+    return jsonify({'success': True})
+
+
+@app.route('/api/ioc/feeds/<int:feed_id>/poll', methods=['POST'])
+@require_admin
+def ioc_poll_feed(feed_id):
+    """Trigger an immediate poll for a specific feed."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled'}), 403
+    from database import get_feed
+    feed = get_feed(feed_id)
+    if not feed:
+        return jsonify({'error': 'Feed not found'}), 404
+    try:
+        from ioc_upload import poll_feed
+        result = poll_feed(
+            feed_id=feed_id,
+            url=feed['url'],
+            feed_format=feed['format'],
+            ioc_type_default=feed['ioc_type_default'],
+            source=f'Feed: {feed["name"]}',
+        )
+        return jsonify({'success': True, **result})
+    except Exception:
+        return jsonify({'error': 'Feed poll failed'}), 502
+
+
+@app.route('/api/ioc/presets')
+@require_admin
+def ioc_feed_presets():
+    """Return built-in feed preset configurations."""
+    if not _feature_enabled('IOC_UPLOAD_ENABLED'):
+        return jsonify({'error': 'IOC upload is disabled'}), 403
+    from ioc_upload import FEED_PRESETS
+    return jsonify(FEED_PRESETS)
+
+
+# ── Logs API ─────────────────────────────────────
+
+@app.route('/api/logs')
+@require_admin
+def get_logs():
+    """Return recent application log lines (admin-only, feature-gated)."""
+    if not _feature_enabled('LOGS_ENABLED'):
+        return jsonify({'error': 'Logs viewer is disabled — enable it in Settings'}), 403
+    log_path = os.getenv('LOG_PATH', '/var/log/soc-dashboard/error.log')
+    lines_requested = min(int(request.args.get('lines', 200)), 1000)
+    try:
+        if not os.path.isfile(log_path):
+            return jsonify({'lines': [], 'path': log_path, 'error': 'Log file not found'})
+        from collections import deque
+        with open(log_path, 'r', errors='replace') as f:
+            tail = deque(f, maxlen=lines_requested)
+        return jsonify({'lines': list(tail), 'path': log_path})
+    except Exception:
+        return jsonify({'error': 'Failed to read log file'}), 500
 
 
 @app.route('/')

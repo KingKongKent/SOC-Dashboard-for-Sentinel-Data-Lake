@@ -1,6 +1,6 @@
 # File Inventory — SOC Dashboard
 
-> Last updated: 2026-03-30
+> Last updated: 2026-04-14
 
 ## Source Files
 
@@ -13,7 +13,10 @@
 | `hourly_refresh.py` | Long-running scheduler with configurable interval from DB settings. Includes 5-min timeout per fetch cycle. | schedule, concurrent.futures, append_data.py, config_manager.py |
 | `auth.py` | Entra ID OAuth2 authorization code flow (multi-tenant). Login, callback, logout, `@require_login` and `@require_admin` decorators. | msal, flask |
 | `config_manager.py` | Encrypted configuration CRUD. DB→env fallback for all settings. Fernet encryption for secrets. | cryptography, database.py |
-| `soc-dashboard-live.html` | Single-page frontend — KPI cards, charts (Chart.js), incident table, timeline filters. Auth-gated with Entra ID login redirect. Admin settings overlay. Data source badge (Graph/Sentinel/Demo). | Chart.js 4.4 (CDN) |
+| `ioc_upload.py` | IOC upload engine — uploads threat intelligence indicators to Sentinel via REST API. Supports single IOC, bulk CSV, and open-source feed ingestion with deduplication. Auto-discovers workspace/resource-group via Resource Graph. | requests, config_manager.py, database.py |
+| `ai_assistant.py` | Azure AI Foundry integration — agent mode with Sentinel MCP tools (data-exploration + triage), direct completion fallback. Caches attack stories. | openai, azure-identity, config_manager.py |
+| `sentinel_kql.py` | KQL query engine — runs ad-hoc KQL queries against Log Analytics REST API with safety limits (row cap, timeout). | requests, config_manager.py |
+| `soc-dashboard-live.html` | Single-page frontend — KPI cards, charts (Chart.js), incident table, timeline filters, IOC upload tab, light/dark theme toggle. Auth-gated with Entra ID login redirect. Admin settings overlay. | Chart.js 4.4 (CDN) |
 | `setup.html` | First-run setup wizard. Presented when Entra ID credentials are missing/placeholder. Saves config to encrypted DB via `/api/setup`. Self-disables after setup completes. | — (standalone HTML) |
 
 ## Scripts (`scripts/`)
@@ -77,6 +80,10 @@
 | Microsoft Graph `/security/threatIntelligence/articles` | fetch_live_data.py | OAuth2 client_credentials | ThreatIntelligence.Read.All |
 | Microsoft Sentinel (Log Analytics REST API) | fetch_live_data.py | OAuth2 client_credentials | Log Analytics Reader |
 | Microsoft Defender XDR (incidents/alerts) | fetch_live_data.py | OAuth2 (Graph fallback) | SecurityIncident.Read.All |
+| Microsoft Sentinel (Threat Intelligence) | ioc_upload.py | OAuth2 client_credentials | Microsoft.Sentinel (Contributor or TI Contributor) |
+| Azure Resource Graph | ioc_upload.py | OAuth2 client_credentials | Reader |
+| Azure AI Foundry (OpenAI) | ai_assistant.py | Entra SP (client_credentials) | Cognitive Services OpenAI User |
 | VirusTotal `/api/v3/files` | fetch_live_data.py | API key header | VirusTotal API key |
+| Microsoft Sentinel TI (ARM REST API) | ioc_upload.py | OAuth2 client_credentials | Microsoft Sentinel Contributor |
 | AbuseIPDB | fetch_live_data.py | Derived from incidents | — |
 | Cisco Talos | fetch_live_data.py | Derived from incidents | — |

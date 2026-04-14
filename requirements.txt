@@ -10,3 +10,6 @@ certifi==2026.1.4
 urllib3==2.6.3
 msal==1.35.1
 cryptography==46.0.6
+openai>=1.30
+azure-ai-projects>=2.0
+azure-identity>=1.16

@@ -37,6 +37,7 @@ CONFIGURABLE_KEYS = [
     'ABUSEIPDB_API_KEY',
     # Operational
     'REFRESH_INTERVAL_MINUTES',
+    'INCIDENTS_DISPLAY_LIMIT',
     # Access Control
     'ADMIN_USERS',
     # Escalation
@@ -44,6 +45,20 @@ CONFIGURABLE_KEYS = [
     'TEAMS_CHANNEL_ID',
     'TEAMS_WEBHOOK_URL',
     'ESCALATION_METHODS',
+    # AI & Data Lake
+    'FOUNDRY_ENDPOINT',
+    'FOUNDRY_DEPLOYMENT',
+    'FOUNDRY_PROJECT_ENDPOINT',
+    'FOUNDRY_AGENT_NAME',
+    # Feature Toggles (values: 'true' / 'false')
+    'AI_ASSISTANT_ENABLED',
+    'KQL_CONSOLE_ENABLED',
+    'MDTI_ENABLED',
+    'AI_AUTO_ENRICH_ENABLED',
+    'AI_AUTO_COMMENT_ENABLED',
+    'CLOSE_INCIDENT_ENABLED',
+    'LOGS_ENABLED',
+    'IOC_UPLOAD_ENABLED',
 ]
 
 
@@ -99,6 +114,40 @@ def _ensure_table() -> None:
         '  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
         ')'
     )
+    conn.commit()
+    conn.close()
+    _migrate_encryption()  # re-save values whose secret status changed
+
+
+def _migrate_encryption() -> None:
+    """Re-encrypt or decrypt values whose SECRET_KEYS membership changed."""
+    conn = sqlite3.connect(_get_db_path())
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute('SELECT key, value, is_encrypted FROM config')
+    for row in cur.fetchall():
+        key, val, is_enc = row['key'], row['value'], row['is_encrypted']
+        should_enc = key in SECRET_KEYS
+        if is_enc and not should_enc and val:
+            try:
+                plain = _decrypt(val)
+                conn.execute(
+                    'UPDATE config SET value=?, is_encrypted=0, updated_at=? WHERE key=?',
+                    (plain, datetime.now().isoformat(), key)
+                )
+                print(f'🔑 Migrated {key}: encrypted → plaintext')
+            except Exception:
+                pass  # value may already be plaintext despite flag
+        elif not is_enc and should_enc and val:
+            try:
+                enc = _encrypt(val)
+                conn.execute(
+                    'UPDATE config SET value=?, is_encrypted=1, updated_at=? WHERE key=?',
+                    (enc, datetime.now().isoformat(), key)
+                )
+                print(f'🔑 Migrated {key}: plaintext → encrypted')
+            except Exception:
+                pass
     conn.commit()
     conn.close()
 

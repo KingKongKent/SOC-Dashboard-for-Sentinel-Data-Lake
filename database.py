@@ -139,6 +139,42 @@ def init_database():
         )
     ''')
 
+    # Attack stories table (AI-generated incident narratives, cached)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS attack_stories (
+            incident_id TEXT PRIMARY KEY,
+            story TEXT NOT NULL,
+            model TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (incident_id) REFERENCES incidents(id)
+        )
+    ''')
+
+    # IOC Feeds table (configured TI feed sources)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ioc_feeds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            format TEXT NOT NULL DEFAULT 'plaintext',
+            poll_interval_hours INTEGER NOT NULL DEFAULT 24,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            last_poll TIMESTAMP,
+            ioc_type_default TEXT NOT NULL DEFAULT 'ipv4-addr',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Uploaded IOCs tracking table (for deduplication)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS uploaded_iocs (
+            hash TEXT PRIMARY KEY,
+            ioc_type TEXT NOT NULL,
+            value TEXT NOT NULL,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Create indices for common queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_created ON incidents(created_time)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)')
@@ -149,6 +185,7 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_case_incidents_case ON case_incidents(case_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_case_incidents_incident ON case_incidents(incident_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_uploaded_iocs_type ON uploaded_iocs(ioc_type)')
     
     conn.commit()
     conn.close()
@@ -570,6 +607,149 @@ def delete_case(case_id: int) -> bool:
         cur = conn.execute('DELETE FROM cases WHERE id = ?', (case_id,))
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+# ─── Attack Stories (AI narratives) ──────────────────────────────────────────
+
+def save_attack_story(incident_id: str, story: str, model: str = '') -> bool:
+    """Insert or replace an AI-generated attack story for an incident."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            '''INSERT OR REPLACE INTO attack_stories (incident_id, story, model, created_at)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP)''',
+            (incident_id, story, model),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_attack_story(incident_id: str) -> Optional[Dict[str, Any]]:
+    """Return the cached attack story for an incident, or None."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            'SELECT * FROM attack_stories WHERE incident_id = ?', (incident_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+# ── IOC Feeds CRUD ──────────────────────────────────────────────────────────
+
+def save_feed(name: str, url: str, fmt: str = 'plaintext',
+              poll_interval_hours: int = 24, ioc_type_default: str = 'ipv4-addr') -> int:
+    """Insert a new feed and return its ID."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            '''INSERT INTO ioc_feeds (name, url, format, poll_interval_hours, ioc_type_default)
+               VALUES (?, ?, ?, ?, ?)''',
+            (name, url, fmt, poll_interval_hours, ioc_type_default),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_feeds(enabled_only: bool = False) -> List[Dict[str, Any]]:
+    """Return all configured feeds."""
+    conn = get_connection()
+    try:
+        sql = 'SELECT * FROM ioc_feeds'
+        if enabled_only:
+            sql += ' WHERE enabled = 1'
+        sql += ' ORDER BY name'
+        rows = conn.execute(sql).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_feed(feed_id: int) -> Optional[Dict[str, Any]]:
+    """Return a single feed by ID."""
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM ioc_feeds WHERE id = ?', (feed_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_feed(feed_id: int, updates: Dict[str, Any]) -> bool:
+    """Update feed fields. Allowed keys: name, url, format, poll_interval_hours, enabled, ioc_type_default."""
+    allowed = {'name', 'url', 'format', 'poll_interval_hours', 'enabled', 'ioc_type_default'}
+    parts, vals = [], []
+    for k, v in updates.items():
+        if k in allowed:
+            parts.append(f'{k} = ?')
+            vals.append(v)
+    if not parts:
+        return False
+    vals.append(feed_id)
+    conn = get_connection()
+    try:
+        conn.execute(f'UPDATE ioc_feeds SET {", ".join(parts)} WHERE id = ?', tuple(vals))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_feed(feed_id: int) -> bool:
+    """Delete a feed by ID."""
+    conn = get_connection()
+    try:
+        cur = conn.execute('DELETE FROM ioc_feeds WHERE id = ?', (feed_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def update_feed_last_poll(feed_id: int) -> None:
+    """Update the last_poll timestamp for a feed."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            'UPDATE ioc_feeds SET last_poll = CURRENT_TIMESTAMP WHERE id = ?',
+            (feed_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ── Uploaded IOC Tracking (dedup) ───────────────────────────────────────────
+
+def get_uploaded_ioc_hashes() -> set:
+    """Return the set of all uploaded IOC hashes."""
+    conn = get_connection()
+    try:
+        rows = conn.execute('SELECT hash FROM uploaded_iocs').fetchall()
+        return {r['hash'] for r in rows}
+    finally:
+        conn.close()
+
+
+def record_uploaded_iocs(items: List[tuple]) -> None:
+    """Record a batch of (ioc_type, value) as uploaded. Computes hash internally."""
+    import hashlib
+    conn = get_connection()
+    try:
+        for ioc_type, value in items:
+            h = hashlib.sha256(f'{ioc_type}:{value.lower().strip()}'.encode()).hexdigest()
+            conn.execute(
+                'INSERT OR IGNORE INTO uploaded_iocs (hash, ioc_type, value) VALUES (?, ?, ?)',
+                (h, ioc_type, value),
+            )
+        conn.commit()
     finally:
         conn.close()
 
