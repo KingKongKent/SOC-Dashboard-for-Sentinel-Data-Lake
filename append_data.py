@@ -73,11 +73,13 @@ def fetch_and_append_new_data():
                 success_count += 1
         print(f"   ✅ Successfully inserted {success_count}/{len(new_alerts)} alerts")
     
-    # Update threat intelligence (always get latest)
+    # Update threat intelligence — use all DB incidents (not just fresh batch)
+    # so VT/Talos/AbuseIPDB stats reflect the full dataset
     print("\n6️⃣  Updating threat intelligence...")
-    threat_intel = fetch_threat_intelligence(all_incidents, all_alerts)
+    db_incidents = get_incidents(days=90)
+    threat_intel = fetch_threat_intelligence(db_incidents, all_alerts)
     save_threat_intel_snapshot('auto_update', threat_intel)
-    print(f"   ✅ Saved threat intelligence snapshot")
+    print(f"   ✅ Saved threat intelligence snapshot (computed from {len(db_incidents)} incidents)")
     
     # Show updated stats
     print("\n7️⃣  Database Statistics:")
