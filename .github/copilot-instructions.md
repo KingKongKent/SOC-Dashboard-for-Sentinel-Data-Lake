@@ -57,6 +57,7 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 ### Deployment
 - **gunicorn required for production**: Flask's dev server is single-threaded and not suitable for production. Always use gunicorn via systemd service.
 - **`.env` file permissions**: Must be `chmod 600` and owned by the service user. `deploy_lxc.sh` sets this, but manual edits can reset permissions.
+- **`deploy_lxc.sh` auto-generates self-signed TLS** when no Let's Encrypt cert is present. It also merges new `.env.example` keys into existing `.env` on re-deploy (never overwrites existing values).
 - If using a reverse proxy with proxy protocol, direct connections (bypassing the proxy) will cause connection resets — always access through the proxy or DNS.
 - See `.github/copilot-instructions.local.md` (gitignored) for environment-specific deployment details.
 

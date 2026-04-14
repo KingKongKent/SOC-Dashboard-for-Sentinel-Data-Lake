@@ -65,23 +65,24 @@ scp -r scripts static root@<LXC_IP>:/opt/soc-dashboard/
 # 2. Run the deployment script
 ssh root@<LXC_IP> 'bash /opt/soc-dashboard/scripts/deploy_lxc.sh'
 
-# 3. Configure nginx domain and TLS
-ssh root@<LXC_IP>
-sed -i 's/YOUR_DOMAIN/your-actual-domain.com/g' /etc/nginx/sites-available/soc-dashboard
-nginx -t && systemctl reload nginx
-certbot --nginx -d your-actual-domain.com
+# 3. (Optional) Replace self-signed cert with Let's Encrypt
+ssh root@<LXC_IP> 'certbot --nginx -d your-actual-domain.com'
 
-# 4. Open https://your-actual-domain.com → the Setup Wizard will launch automatically
+# 4. Open https://<LXC_IP_or_domain> → the Setup Wizard will launch automatically
 ```
 
 The deployment script (`scripts/deploy_lxc.sh`) will:
-1. Install system packages (`python3`, `venv`, `nginx`, `certbot`)
+1. Install system packages (`python3`, `venv`, `nginx`, `certbot`, `curl`, `openssl`)
 2. Create a `socdash` service user (no login shell)
 3. Set up `/opt/soc-dashboard` (app) and `/var/lib/soc-dashboard` (DB/data)
 4. Create a Python venv with all dependencies + gunicorn
-5. Initialize the SQLite database schema
-6. Install systemd units (dashboard service + hourly refresh timer)
-7. Configure and enable nginx reverse proxy
+5. Merge new `.env.example` keys into existing `.env` (never overwrites existing values)
+6. Initialize the SQLite database schema
+7. Install systemd units (dashboard service + hourly refresh timer)
+8. Auto-detect `server_name` from `REDIRECT_URI` (falls back to LXC IP)
+9. Generate a self-signed TLS certificate if no Let's Encrypt cert exists
+10. Configure and enable nginx with HTTPS + HTTP→HTTPS redirect
+11. Run health checks (services, HTTPS endpoint)
 
 ### First-Run Setup Wizard
 
@@ -105,7 +106,8 @@ Credentials are saved to the encrypted config database — no need to SSH in and
 | Database | `/var/lib/soc-dashboard/soc_dashboard.db` | SQLite database (writable) |
 | Encryption key | `/var/lib/soc-dashboard/.encryption_key` | Fernet key for config secrets |
 | Flask sessions | `/var/lib/soc-dashboard/flask_sessions/` | Session file storage |
-| Credentials | `/opt/soc-dashboard/.env` | Environment vars (chmod 600) |
+| Credentials | `/etc/soc-dashboard/.env` | Environment vars (chmod 600) |
+| TLS cert (auto) | `/etc/ssl/soc-dashboard/` | Self-signed cert (if no Let's Encrypt) |
 | Service | `dashboard.service` | gunicorn on 127.0.0.1:5000 (2 workers) |
 | Timer | `hourly-refresh.timer` | Runs `append_data.py` every 1 hour |
 | Nginx | `/etc/nginx/sites-available/soc-dashboard` | TLS reverse proxy |

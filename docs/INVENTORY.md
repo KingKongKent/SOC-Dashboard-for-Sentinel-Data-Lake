@@ -1,6 +1,6 @@
 # File Inventory — SOC Dashboard
 
-> Last updated: 2026-04-14
+> Last updated: 2025-06-27
 
 ## Source Files
 
@@ -24,7 +24,7 @@
 | File | Purpose |
 |------|---------|
 | `scripts/pre_commit_check.py` | Pre-commit scanner for leaked secrets and common vulns |
-| `scripts/deploy_lxc.sh` | Automated FHS-compliant deployment to Ubuntu 24.04 LXC (venv at `/usr/local/soc-venv`, config at `/etc/soc-dashboard/`, logs at `/var/log/soc-dashboard/`). Includes migration from old layout. |
+| `scripts/deploy_lxc.sh` | Automated FHS-compliant deployment to Ubuntu 24.04 LXC. Auto-generates self-signed TLS if no Let's Encrypt cert. Merges new `.env.example` keys into existing `.env`. Auto-detects `server_name` from `REDIRECT_URI`. Includes health checks. |
 | `scripts/setup_systemd.sh` | Creates systemd units: dashboard.service + hourly-refresh.timer (FHS paths) |
 | `scripts/nginx_site.conf` | nginx reverse proxy config template (replace `YOUR_DOMAIN` before use) |
 | `scripts/setup_task_scheduler.ps1` | Creates a Windows Scheduled Task for hourly refresh |
