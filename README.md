@@ -284,7 +284,7 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 |------|--------|
 | **Authentication** | Entra ID OAuth2 with MSAL, admin role via email list |
 | **Secure Score** | Live from Microsoft Graph API with category breakdown |
-| **Incidents** | Timeline filtering (7d–90d), severity & status filters, hide-redirected toggle, configurable table row limit (`INCIDENTS_DISPLAY_LIMIT`) |
+| **Incidents** | Timeline filtering (7d–90d), separate Severity and Status filters, dual status labels (`New`, `In progress (Active)`, `Resolved (Closed)`), hide-redirected toggle, configurable table row limit (`INCIDENTS_DISPLAY_LIMIT`) |
 | **Incident Actions** | Assign to Me, Escalate (severity bump + email notification), and optional Close Incident action with Graph classification/determination |
 | **Local Case Tracking** | Per-incident notes, status tagging, and deep-link to Defender Cases portal |
 | **Alerts** | Linked to incidents, product and detection source breakdown |

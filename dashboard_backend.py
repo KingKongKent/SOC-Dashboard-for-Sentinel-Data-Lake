@@ -21,6 +21,7 @@ try:
         update_incident_field,
         create_case, get_cases, get_case, update_case, delete_case,
         save_attack_story, get_attack_story,
+        get_workspaces, add_workspace, remove_workspace, set_default_workspace,
     )
     from fetch_live_data import (
         fetch_secure_score, calculate_daily_alert_volume, get_last_incident_source,
@@ -661,14 +662,14 @@ def close_incident(incident_id):
             f'Comment: {comment or "N/A"}'
         )
 
-        update_incident_field(incident_id, 'status', 'Resolved')
+        update_incident_field(incident_id, 'status', 'Closed')
         update_incident_field(incident_id, 'classification', classification)
         update_incident_field(incident_id, 'determination', determination)
 
         print(f'✅ Incident {incident_id} closed by {email}')
         return jsonify({
             'success': True,
-            'status': 'Resolved',
+            'status': 'Closed',
             'classification': classification,
             'determination': determination,
         })
@@ -785,6 +786,48 @@ def get_features():
     })
 
 
+# ── Sentinel Workspaces API ─────────────────────
+
+@app.route('/api/workspaces', methods=['GET'])
+@require_login
+def list_workspaces():
+    """Return all registered Sentinel workspaces."""
+    return jsonify(get_workspaces())
+
+@app.route('/api/workspaces', methods=['POST'])
+@require_admin
+def create_workspace():
+    """Register a new Sentinel workspace."""
+    payload = request.get_json(silent=True)
+    if not payload:
+        return jsonify({'error': 'Missing JSON payload'}), 400
+    ws_id = (payload.get('workspace_id') or '').strip()
+    name = (payload.get('name') or '').strip()
+    if not ws_id or not name:
+        return jsonify({'error': 'workspace_id and name are required'}), 400
+    try:
+        row_id = add_workspace(ws_id, name, is_default=payload.get('is_default', False))
+    except Exception:
+        return jsonify({'error': 'Workspace ID already exists'}), 409
+    return jsonify({'id': row_id, 'workspace_id': ws_id, 'name': name}), 201
+
+@app.route('/api/workspaces/<int:row_id>', methods=['DELETE'])
+@require_admin
+def delete_workspace(row_id):
+    """Remove a registered workspace."""
+    if remove_workspace(row_id):
+        return jsonify({'deleted': True})
+    return jsonify({'error': 'Workspace not found'}), 404
+
+@app.route('/api/workspaces/<int:row_id>/default', methods=['PUT'])
+@require_admin
+def set_workspace_default(row_id):
+    """Set a workspace as the default."""
+    if set_default_workspace(row_id):
+        return jsonify({'is_default': True})
+    return jsonify({'error': 'Workspace not found'}), 404
+
+
 # ── KQL Console API ─────────────────────────────
 
 @app.route('/api/sentinel/query', methods=['POST'])
@@ -798,7 +841,8 @@ def sentinel_query():
         return jsonify({'error': 'Missing query'}), 400
     try:
         from sentinel_kql import run_kql
-        rows = run_kql(payload['query'])
+        ws = payload.get('workspace_id') or None
+        rows = run_kql(payload['query'], workspace_id=ws)
         return jsonify({'columns': list(rows[0].keys()) if rows else [], 'rows': rows})
     except (ValueError, RuntimeError) as exc:
         return jsonify({'error': str(exc)}), 400
@@ -1092,21 +1136,68 @@ def ioc_feed_presets():
 
 # ── Logs API ─────────────────────────────────────
 
+_LOG_FILES = {
+    'error':  lambda: os.getenv('LOG_PATH', '/var/log/soc-dashboard/error.log'),
+    'access': lambda: os.getenv('ACCESS_LOG_PATH', '/var/log/soc-dashboard/access.log'),
+}
+
+import re as _re
+
+_GUNICORN_RE = _re.compile(
+    r'^\[(?P<ts>[^\]]+)\]\s+\[\d+\]\s+\[(?P<level>\w+)\]\s+(?P<msg>.*)$'
+)
+_ACCESS_RE = _re.compile(
+    r'^(?P<ip>\S+)\s+\S+\s+\S+\s+\[(?P<ts>[^\]]+)\]\s+"(?P<method>\w+)\s+(?P<path>\S+)\s+\S+"\s+(?P<status>\d+)\s+(?P<size>\S+)\s+"(?P<ref>[^"]*)"\s+"(?P<ua>[^"]*)"'
+)
+_PYTHON_LOG_RE = _re.compile(
+    r'^(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})[,.]?\d*\s+(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+(?P<msg>.*)$',
+    _re.IGNORECASE
+)
+
+
+def _parse_log_line(line: str, log_type: str) -> dict:
+    """Parse a raw log line into structured fields."""
+    raw = line.rstrip('\n')
+    if log_type == 'access':
+        m = _ACCESS_RE.match(raw)
+        if m:
+            status = int(m.group('status'))
+            level = 'ERROR' if status >= 500 else 'WARNING' if status >= 400 else 'INFO'
+            return {'ts': m.group('ts'), 'level': level, 'msg': f"{m.group('method')} {m.group('path')} → {status}",
+                    'ip': m.group('ip'), 'status': status, 'ua': m.group('ua'), 'raw': raw}
+    else:
+        m = _GUNICORN_RE.match(raw)
+        if m:
+            return {'ts': m.group('ts'), 'level': m.group('level').upper(), 'msg': m.group('msg'), 'raw': raw}
+        m = _PYTHON_LOG_RE.match(raw)
+        if m:
+            return {'ts': m.group('ts'), 'level': m.group('level').upper(), 'msg': m.group('msg'), 'raw': raw}
+    # Fallback — unparsed line
+    return {'ts': '', 'level': '', 'msg': raw, 'raw': raw}
+
+
 @app.route('/api/logs')
 @require_admin
 def get_logs():
     """Return recent application log lines (admin-only, feature-gated)."""
     if not _feature_enabled('LOGS_ENABLED'):
         return jsonify({'error': 'Logs viewer is disabled — enable it in Settings'}), 403
-    log_path = os.getenv('LOG_PATH', '/var/log/soc-dashboard/error.log')
-    lines_requested = min(int(request.args.get('lines', 200)), 1000)
+
+    log_type = request.args.get('file', 'error')
+    if log_type not in _LOG_FILES:
+        return jsonify({'error': 'Invalid log file'}), 400
+    log_path = _LOG_FILES[log_type]()
+    lines_requested = min(int(request.args.get('lines', 200)), 2000)
+
     try:
         if not os.path.isfile(log_path):
-            return jsonify({'lines': [], 'path': log_path, 'error': 'Log file not found'})
+            return jsonify({'lines': [], 'parsed': [], 'path': log_path, 'error': 'Log file not found'})
         from collections import deque
         with open(log_path, 'r', errors='replace') as f:
             tail = deque(f, maxlen=lines_requested)
-        return jsonify({'lines': list(tail), 'path': log_path})
+        raw_lines = list(tail)
+        parsed = [_parse_log_line(l, log_type) for l in raw_lines]
+        return jsonify({'lines': raw_lines, 'parsed': parsed, 'path': log_path, 'type': log_type})
     except Exception:
         return jsonify({'error': 'Failed to read log file'}), 500
 

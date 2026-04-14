@@ -34,7 +34,17 @@ def _cfg(key: str, default: str = '') -> str:
 
 
 # Sentinel workspace configuration
-def _workspace_id(): return _cfg('SENTINEL_WORKSPACE_ID')
+def _workspace_id():
+    """Return default workspace ID: DB registry first, then legacy config."""
+    try:
+        from database import get_default_workspace_id
+        ws = get_default_workspace_id()
+        if ws:
+            return ws
+    except Exception:
+        pass
+    return _cfg('SENTINEL_WORKSPACE_ID')
+
 def _workspace_name(): return _cfg('SENTINEL_WORKSPACE_NAME')
 
 # Microsoft Graph API endpoints
@@ -371,7 +381,7 @@ def _map_graph_incident(inc: dict) -> dict:
         'id': str(inc.get('id', '')),
         'title': inc.get('displayName', 'Untitled'),
         'severity': (inc.get('severity') or 'medium').capitalize(),
-        'status': (inc.get('status') or 'active').capitalize(),
+        'status': normalize_incident_status(inc.get('status')),
         'createdTime': inc.get('createdDateTime', ''),
         'lastUpdateTime': inc.get('lastUpdateDateTime', ''),
         'classification': inc.get('classification', 'unknown') or 'unknown',
@@ -429,6 +439,24 @@ def _map_graph_alert(alert: dict, incident_id: str) -> dict:
         'alertWebUrl': alert.get('alertWebUrl', ''),
         'recommendedActions': alert.get('recommendedActions', ''),
     }
+
+
+_INCIDENT_STATUS_MAP = {
+    'new': 'New',
+    'inprogress': 'Active',
+    'active': 'Active',
+    'resolved': 'Closed',
+    'closed': 'Closed',
+    'redirected': 'Redirected',
+}
+
+
+def normalize_incident_status(raw_status: str | None, default: str = 'Active') -> str:
+    """Normalize Defender/Sentinel status values to canonical dashboard values."""
+    key = str(raw_status or '').strip().lower().replace('_', '').replace(' ', '')
+    if not key:
+        return default
+    return _INCIDENT_STATUS_MAP.get(key, str(raw_status).strip().capitalize())
 
 
 def fetch_defender_incidents_live() -> list | None:
@@ -517,7 +545,7 @@ def fetch_defender_incidents_sentinel() -> list | None:
                 'id': str(r.get('IncidentNumber', '')),
                 'title': r.get('Title', 'Untitled'),
                 'severity': (r.get('Severity') or 'Medium').capitalize(),
-                'status': (r.get('Status') or 'Active').capitalize(),
+                'status': normalize_incident_status(r.get('Status')),
                 'createdTime': r.get('CreatedTime', ''),
                 'lastUpdateTime': r.get('LastModifiedTime', ''),
                 'classification': r.get('Classification', 'unknown') or 'unknown',
@@ -544,11 +572,11 @@ def _generate_demo_incidents() -> list:
     templates = [
         {"severity": "Low", "status": "Active", "type": "DLP"},
         {"severity": "High", "status": "Active", "type": "Multi-stage"},
-        {"severity": "Medium", "status": "Resolved", "type": "AnonymousIP"},
+        {"severity": "Medium", "status": "Closed", "type": "AnonymousIP"},
         {"severity": "High", "status": "Active", "type": "PasswordSpray"},
         {"severity": "Medium", "status": "Active", "type": "Discovery"},
         {"severity": "Low", "status": "Active", "type": "RemoteConnection"},
-        {"severity": "Medium", "status": "Resolved", "type": "Hacktool"},
+        {"severity": "Medium", "status": "Closed", "type": "Hacktool"},
     ]
 
     # Realistic entity pools for demo data
@@ -2041,8 +2069,8 @@ def generate_dashboard_data():
     medium_count = sum(1 for i in incidents if i.get('severity') == 'Medium')
     low_count = sum(1 for i in incidents if i.get('severity') == 'Low')
     informational_count = sum(1 for i in incidents if i.get('severity') == 'Informational')
-    resolved_count = sum(1 for i in incidents if i.get('status') == 'Resolved')
-    active_count = sum(1 for i in incidents if i.get('status') in ['Active', 'New'])
+    resolved_count = sum(1 for i in incidents if i.get('status') in ('Closed', 'Resolved'))
+    active_count = sum(1 for i in incidents if i.get('status') in ('Active', 'New', 'InProgress'))
     
     # Build dashboard data structure
     data = {

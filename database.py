@@ -11,6 +11,29 @@ import os
 
 DB_FILE = os.getenv('DB_PATH', 'soc_dashboard.db')
 
+_STATUS_FILTER_MAP = {
+    'new': 'New',
+    'active': 'Active',
+    'inprogress': 'Active',
+    'resolved': 'Closed',
+    'closed': 'Closed',
+    'redirected': 'Redirected',
+}
+
+
+def _normalize_status_filter(status: str) -> str:
+    key = str(status or '').strip().lower().replace('_', '').replace(' ', '')
+    return _STATUS_FILTER_MAP.get(key, str(status or '').strip())
+
+
+def _status_variants(status: str) -> List[str]:
+    normalized = _normalize_status_filter(status)
+    variants = {
+        'Active': ['Active', 'InProgress'],
+        'Closed': ['Closed', 'Resolved'],
+    }
+    return variants.get(normalized, [normalized])
+
 def get_connection():
     """Get database connection with row factory for dict results"""
     conn = sqlite3.connect(DB_FILE)
@@ -175,6 +198,20 @@ def init_database():
         )
     ''')
 
+    # Sentinel workspaces registry (multi-workspace support)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS workspaces (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Auto-seed from legacy config if table is empty
+    _seed_workspace_from_config(cursor)
+
     # Create indices for common queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_created ON incidents(created_time)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)')
@@ -190,6 +227,95 @@ def init_database():
     conn.commit()
     conn.close()
     print("✅ Database schema initialized")
+
+
+# ── Sentinel Workspaces ──────────────────────────────────────────────────────
+
+def _seed_workspace_from_config(cursor) -> None:
+    """Auto-insert legacy SENTINEL_WORKSPACE_ID if workspaces table is empty."""
+    row = cursor.execute('SELECT COUNT(*) AS cnt FROM workspaces').fetchone()
+    if row['cnt'] > 0:
+        return
+    try:
+        from config_manager import get_config
+        ws_id = get_config('SENTINEL_WORKSPACE_ID')
+        ws_name = get_config('SENTINEL_WORKSPACE_NAME') or 'Default'
+        if ws_id:
+            cursor.execute(
+                'INSERT INTO workspaces (workspace_id, name, is_default) VALUES (?, ?, 1)',
+                (ws_id, ws_name),
+            )
+            print(f"  ✅ Seeded workspace from config: {ws_name}")
+    except Exception:
+        pass  # config_manager not available during first-run
+
+
+def get_workspaces() -> List[Dict[str, Any]]:
+    """Return all registered Sentinel workspaces."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            'SELECT id, workspace_id, name, is_default, created_at FROM workspaces ORDER BY is_default DESC, name'
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_default_workspace_id() -> Optional[str]:
+    """Return the workspace_id of the default workspace, or None."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            'SELECT workspace_id FROM workspaces WHERE is_default = 1 LIMIT 1'
+        ).fetchone()
+        if row:
+            return row['workspace_id']
+        # Fallback: first workspace if none marked default
+        row = conn.execute('SELECT workspace_id FROM workspaces LIMIT 1').fetchone()
+        return row['workspace_id'] if row else None
+    finally:
+        conn.close()
+
+
+def add_workspace(workspace_id: str, name: str, is_default: bool = False) -> int:
+    """Add a Sentinel workspace. Returns the new row id."""
+    conn = get_connection()
+    try:
+        if is_default:
+            conn.execute('UPDATE workspaces SET is_default = 0')
+        cur = conn.execute(
+            'INSERT INTO workspaces (workspace_id, name, is_default) VALUES (?, ?, ?)',
+            (workspace_id, name, 1 if is_default else 0),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def remove_workspace(row_id: int) -> bool:
+    """Remove a workspace by its table PK. Returns True if deleted."""
+    conn = get_connection()
+    try:
+        cur = conn.execute('DELETE FROM workspaces WHERE id = ?', (row_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_default_workspace(row_id: int) -> bool:
+    """Set a workspace as the default (clears others). Returns True if found."""
+    conn = get_connection()
+    try:
+        conn.execute('UPDATE workspaces SET is_default = 0')
+        cur = conn.execute('UPDATE workspaces SET is_default = 1 WHERE id = ?', (row_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
 
 def insert_incident(incident: Dict[str, Any]) -> bool:
     """Insert or update an incident"""
@@ -330,7 +456,7 @@ def get_incidents(days: Optional[int] = None,
         start_date: ISO format date string
         end_date: ISO format date string
         severity: Filter by severity (High, Medium, Low, Informational)
-        status: Filter by status (Active, New, Resolved, etc.)
+        status: Filter by status (New, Active, Closed; legacy aliases accepted)
         limit: Maximum number of results
     """
     conn = get_connection()
@@ -362,8 +488,14 @@ def get_incidents(days: Optional[int] = None,
     
     # Status filtering
     if status:
-        query += " AND status = ?"
-        params.append(status)
+        status_values = _status_variants(status)
+        if len(status_values) == 1:
+            query += " AND status = ?"
+            params.append(status_values[0])
+        else:
+            placeholders = ','.join('?' for _ in status_values)
+            query += f" AND status IN ({placeholders})"
+            params.extend(status_values)
     
     # Ordering and limit
     query += " ORDER BY created_time DESC"
@@ -423,8 +555,8 @@ def get_metrics_summary(days: int = 30) -> Dict[str, Any]:
             SUM(CASE WHEN severity = 'Medium' THEN 1 ELSE 0 END) as medium,
             SUM(CASE WHEN severity = 'Low' THEN 1 ELSE 0 END) as low,
             SUM(CASE WHEN severity = 'Informational' THEN 1 ELSE 0 END) as informational,
-            SUM(CASE WHEN status = 'Resolved' THEN 1 ELSE 0 END) as resolved,
-            SUM(CASE WHEN status IN ('Active', 'New') THEN 1 ELSE 0 END) as active
+            SUM(CASE WHEN status IN ('Closed', 'Resolved') THEN 1 ELSE 0 END) as resolved,
+            SUM(CASE WHEN status IN ('Active', 'New', 'InProgress') THEN 1 ELSE 0 END) as active
         FROM incidents
         WHERE created_time >= ?
     ''', (cutoff.isoformat(),))

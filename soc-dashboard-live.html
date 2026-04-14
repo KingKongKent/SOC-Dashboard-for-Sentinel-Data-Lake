@@ -159,6 +159,44 @@
         .chart-card { background: var(--bg-card); padding: 20px; border-radius: 12px; box-shadow: var(--shadow-card); max-height: 320px; }
         .chart-card.full-width { grid-column: 1 / -1; }
         .chart-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 20px; }
+        .chart-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 14px;
+            align-items: center;
+        }
+        .filter-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .filter-group-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-right: 4px;
+        }
+        .filter-btn {
+            padding: 5px 10px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            border-radius: 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .filter-btn:hover {
+            border-color: var(--color-primary);
+            color: var(--color-primary);
+        }
+        .filter-btn.active {
+            background: var(--color-primary);
+            border-color: var(--color-primary);
+            color: #fff;
+        }
         .incidents-table { background: var(--bg-card); padding: 25px; border-radius: 12px; box-shadow: var(--shadow-card); overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; }
         th { background: var(--table-header-bg); padding: 15px; text-align: left; font-weight: 600; color: var(--text-secondary); font-size: 14px; }
@@ -272,8 +310,10 @@
             font-size: 12px;
             font-weight: 600;
         }
+        .status-new { background: #e3f2fd; color: #1565c0; }
         .status-active { background: #ffebee; color: #c62828; }
         .status-investigating { background: #e3f2fd; color: #1565c0; }
+        .status-closed { background: #e8f5e9; color: #2e7d32; }
         .status-resolved { background: #e8f5e9; color: #2e7d32; }
         .status-redirected { background: #f3e5f5; color: #7b1fa2; }
         .status-inprogress { background: #fff3e0; color: #e65100; }
@@ -530,9 +570,24 @@
         /* Logs viewer */
         .logs-viewer {
             background: #0f172a; border: 1px solid #334155; border-radius: 8px;
-            padding: 16px; font-family: 'Consolas','Courier New',monospace; font-size: 12px;
-            color: #e2e8f0; max-height: 600px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+            padding: 0; font-family: 'Consolas','Courier New',monospace; font-size: 12px;
+            color: #e2e8f0; max-height: 600px; overflow-y: auto;
         }
+        .logs-viewer table { width: 100%; border-collapse: collapse; }
+        .logs-viewer th { position: sticky; top: 0; background: #1e293b; padding: 6px 10px; text-align: left; font-size: 11px; color: #94a3b8; border-bottom: 1px solid #334155; white-space: nowrap; }
+        .logs-viewer td { padding: 4px 10px; border-bottom: 1px solid #1e293b; vertical-align: top; font-size: 12px; }
+        .logs-viewer tr:hover { background: rgba(255,255,255,.04); }
+        .logs-viewer .log-ts { color: #64748b; white-space: nowrap; width: 180px; }
+        .logs-viewer .log-msg { word-break: break-all; white-space: pre-wrap; }
+        .log-level { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; min-width: 50px; text-align: center; }
+        .log-level-error, .log-level-critical { background: #991b1b; color: #fca5a5; }
+        .log-level-warning { background: #92400e; color: #fde68a; }
+        .log-level-info { background: #1e3a5f; color: #93c5fd; }
+        .log-level-debug { background: #334155; color: #94a3b8; }
+        .log-level-unknown { background: #1e293b; color: #64748b; }
+        .log-filter-btn { padding: 3px 10px; border: 1px solid #334155; border-radius: 12px; font-size: 11px; cursor: pointer; background: transparent; color: #94a3b8; transition: all .15s; }
+        .log-filter-btn:hover { border-color: #60a5fa; color: #e2e8f0; }
+        .log-filter-btn.active { background: #1e3a5f; border-color: #60a5fa; color: #93c5fd; }
         .logs-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
         .logs-toolbar select, .logs-toolbar input { padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 6px; font-size: 13px; background: var(--bg-input); color: var(--text-primary); }
 
@@ -559,14 +614,140 @@
             color: var(--text-muted);
         }
         .theme-toggle:hover { background: var(--bg-header); border-color: var(--color-accent); }
+
+        /* Hamburger menu button — hidden on desktop */
+        .hamburger-btn {
+            display: none;
+            background: none; border: none; cursor: pointer;
+            font-size: 26px; color: var(--text-primary); padding: 6px;
+        }
+        .mobile-drawer {
+            display: none;
+            flex-direction: column; gap: 10px;
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border-color);
+        }
+        .mobile-drawer.open { display: flex; }
+        .mobile-drawer .date-filter-btn,
+        .mobile-drawer .refresh-btn,
+        .mobile-drawer .logout-btn,
+        .mobile-drawer .settings-btn,
+        .mobile-drawer .theme-toggle { min-height: 44px; font-size: 14px; }
+
+        /* ── Responsive: Tablet (≤768px) ────────────────────────── */
+        @media (max-width: 768px) {
+            body { padding: 8px; }
+            .dashboard-container { max-width: 100%; }
+            .header { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
+            .header h1 { font-size: 22px; }
+            .header small { display: none; }
+            .header-info { display: none; }  /* hidden — moved into drawer */
+            .hamburger-btn { display: block; }
+            .dash-tabs { gap: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .dash-tab { font-size: 13px; padding: 10px 12px; white-space: nowrap; min-height: 44px; }
+
+            /* KPI grid: 2 columns */
+            .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px; }
+            .kpi-card { padding: 14px; }
+            .kpi-value { font-size: 28px; }
+            .kpi-title { font-size: 12px; }
+
+            /* Charts: single column */
+            .chart-grid { grid-template-columns: 1fr !important; }
+            .chart-card { max-height: 280px; }
+
+            /* Filters: bigger touch targets */
+            .filter-btn { padding: 8px 14px !important; font-size: 13px !important; min-height: 40px; }
+            .filter-group-label { font-size: 11px; }
+
+            /* Incidents table: card layout */
+            .incidents-table thead { display: none; }
+            .incidents-table tbody tr {
+                display: grid;
+                grid-template-columns: auto 1fr auto;
+                gap: 4px 10px;
+                padding: 12px;
+                margin-bottom: 8px;
+                border-radius: 8px;
+                background: var(--bg-card);
+                box-shadow: var(--shadow-card);
+                border-bottom: none;
+                min-height: 44px;
+                align-items: center;
+            }
+            .incidents-table tbody tr:hover { background: var(--table-row-hover); }
+            /* Column mapping: 1=ID, 2=Title, 3=Severity, 4=Status, 5=Owner, 6=Created */
+            .incidents-table tbody td { padding: 2px 0; border: none; font-size: 13px; }
+            .incidents-table tbody td:nth-child(1) { display: none; } /* ID — hidden */
+            .incidents-table tbody td:nth-child(2) { grid-column: 1 / -1; font-weight: 600; font-size: 14px; } /* Title — full row */
+            .incidents-table tbody td:nth-child(3) { grid-column: 1; } /* Severity badge */
+            .incidents-table tbody td:nth-child(4) { grid-column: 2; } /* Status badge */
+            .incidents-table tbody td:nth-child(5) { display: none; } /* Owner — hidden */
+            .incidents-table tbody td:nth-child(6) { grid-column: 3; font-size: 12px; color: var(--text-faint); } /* Created */
+
+            /* Modals: full-screen */
+            .modal-content, .incident-detail-modal, .escalation-modal, .close-incident-modal, .case-detail-modal {
+                width: 100% !important; max-width: none !important;
+                height: 100vh; margin: 0; border-radius: 0;
+                overflow-y: auto;
+            }
+            .modal-content { padding: 16px; }
+
+            /* Settings panel */
+            .settings-panel { width: 100% !important; max-width: none !important; height: 100vh; border-radius: 0; }
+
+            /* IOC upload: single column */
+            .ioc-upload-grid { grid-template-columns: 1fr !important; }
+
+            /* KQL & AI panels */
+            .kql-textarea { font-size: 14px; min-height: 80px; }
+            .kql-toolbar select { min-height: 40px; font-size: 14px; }
+
+            /* MDTI heading */
+            #mdtiSection h2 { font-size: 18px; }
+        }
+
+        /* ── Responsive: Phone (≤480px) ─────────────────────────── */
+        @media (max-width: 480px) {
+            body { padding: 4px; }
+            .header { padding: 10px; }
+            .header h1 { font-size: 18px; }
+
+            /* KPI grid: single column */
+            .kpi-grid { grid-template-columns: 1fr !important; }
+            .kpi-card { padding: 12px; }
+            .kpi-value { font-size: 24px; }
+
+            /* Tab bar scroll */
+            .dash-tabs { flex-wrap: nowrap; }
+            .dash-tab { font-size: 12px; padding: 8px 10px; }
+
+            /* AI chat: full-screen overlay */
+            .ai-panel { position: fixed; inset: 0; z-index: 2000; background: var(--bg-card); border-radius: 0; margin: 0; padding: 10px; display: flex; flex-direction: column; }
+            .ai-panel .ai-messages { flex: 1; overflow-y: auto; }
+            .ai-panel .ai-input-row { position: sticky; bottom: 0; background: var(--bg-card); padding: 8px 0; }
+
+            /* Logs: hide timestamp, full-width filter */
+            .logs-viewer .log-ts { display: none; }
+            #logFilter { width: 100% !important; }
+
+            /* Modal grid fields stack */
+            .incident-detail-grid { grid-template-columns: 1fr !important; }
+            .modal-content div[style*="grid-template-columns: repeat(2"] { grid-template-columns: 1fr !important; }
+            .modal-content div[style*="grid-template-columns: repeat(3"] { grid-template-columns: 1fr !important; }
+        }
     </style>
 </head>
 <body>
     <div class="dashboard-container">
         <div class="header">
-            <div>
-                <h1>🛡️ SOC Dashboard<span class="live-badge">● LIVE</span><span id="sourceBadge" class="source-badge source-demo" style="display:none;"></span></h1>
-                <small style="color: #666;">Microsoft Sentinel & Defender for Endpoint</small>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div>
+                    <h1>🛡️ SOC Dashboard<span class="live-badge">● LIVE</span><span id="sourceBadge" class="source-badge source-demo" style="display:none;"></span></h1>
+                    <small style="color: #666;">Microsoft Sentinel & Defender for Endpoint</small>
+                </div>
+                <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleMobileDrawer()" aria-label="Menu">☰</button>
             </div>
             <div class="header-info">
                 <div style="display: flex; align-items: center; gap: 15px;">
@@ -588,6 +769,23 @@
                     <span class="user-name" id="userName"></span>
                     <button class="logout-btn" onclick="window.location.href='/logout'">Logout</button>
                 </div>
+            </div>
+        </div>
+        <!-- Mobile drawer (hidden on desktop, toggled by hamburger) -->
+        <div class="mobile-drawer" id="mobileDrawer">
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="date-filter-btn" data-days="7" onclick="applyDateFilterButton(7)">7d</button>
+                <button class="date-filter-btn active" data-days="30" onclick="applyDateFilterButton(30)">30d</button>
+                <button class="date-filter-btn" data-days="60" onclick="applyDateFilterButton(60)">60d</button>
+                <button class="date-filter-btn" data-days="90" onclick="applyDateFilterButton(90)">90d</button>
+                <button class="date-filter-btn" data-days="all" onclick="applyDateFilterButton('all')">All</button>
+            </div>
+            <small style="color:#999;">Last refresh: <span id="lastRefreshMobile">--</span></small>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="refresh-btn" onclick="manualRefresh(this)" style="flex:1;">↻ Refresh</button>
+                <button class="theme-toggle" onclick="toggleTheme()">☀️</button>
+                <button class="settings-btn" onclick="openSettings()" id="settingsBtnMobile" style="display:none;">⚙</button>
+                <button class="logout-btn" onclick="window.location.href='/logout'" style="min-height:44px;">Logout</button>
             </div>
         </div>
 
@@ -641,9 +839,9 @@
                     <div class="kpi-value" style="color: #9c27b0;" id="activeIncidents">--</div>
                     <small style="color: #666;">Needs attention</small>
                 </div>
-                <div class="kpi-card clickable" onclick="filterIncidentsByStatus('Resolved')" title="Click to show resolved incidents">
+                <div class="kpi-card clickable" onclick="filterIncidentsByStatus('Closed')" title="Click to show resolved incidents">
                     <div class="kpi-header">
-                        <span class="kpi-title">Resolved</span>
+                        <span class="kpi-title">Resolved (Closed)</span>
                         <span class="kpi-icon">✅</span>
                     </div>
                     <div class="kpi-value" style="color: #388e3c;" id="resolvedIncidents">--</div>
@@ -754,12 +952,21 @@
                 <div class="chart-title">
                     <span>Recent Security Incidents <small id="incidentCountMeta" style="color:#94a3b8;font-weight:500;margin-left:8px;"></small></span>
                     <div class="chart-filters">
-                        <button class="filter-btn active" onclick="filterIncidents('all')">All</button>
-                        <button class="filter-btn" onclick="filterIncidents('High')">High</button>
-                        <button class="filter-btn" onclick="filterIncidents('Medium')">Medium</button>
-                        <button class="filter-btn" onclick="filterIncidents('Low')">Low</button>
-                        <button class="filter-btn" onclick="filterIncidents('Informational')">Informational</button>
-                        <button class="filter-btn" onclick="filterIncidents('Active')">Active</button>
+                        <div class="filter-group">
+                            <span class="filter-group-label">Severity</span>
+                            <button class="filter-btn active" data-filter-type="severity" data-filter-value="all" onclick="filterIncidentsBySeverity('all')">All</button>
+                            <button class="filter-btn" data-filter-type="severity" data-filter-value="high" onclick="filterIncidentsBySeverity('High')">High</button>
+                            <button class="filter-btn" data-filter-type="severity" data-filter-value="medium" onclick="filterIncidentsBySeverity('Medium')">Medium</button>
+                            <button class="filter-btn" data-filter-type="severity" data-filter-value="low" onclick="filterIncidentsBySeverity('Low')">Low</button>
+                            <button class="filter-btn" data-filter-type="severity" data-filter-value="informational" onclick="filterIncidentsBySeverity('Informational')">Informational</button>
+                        </div>
+                        <div class="filter-group">
+                            <span class="filter-group-label">Status</span>
+                            <button class="filter-btn active" data-filter-type="status" data-filter-value="all" onclick="filterIncidentsByStatus('all')">All</button>
+                            <button class="filter-btn" data-filter-type="status" data-filter-value="new" onclick="filterIncidentsByStatus('New')">New</button>
+                            <button class="filter-btn" data-filter-type="status" data-filter-value="active" onclick="filterIncidentsByStatus('Active')">In progress (Active)</button>
+                            <button class="filter-btn" data-filter-type="status" data-filter-value="closed" onclick="filterIncidentsByStatus('Closed')">Resolved (Closed)</button>
+                        </div>
                         <label style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;font-size:12px;color:#666;cursor:pointer;user-select:none;" title="Redirected incidents were merged into another incident and create noise">
                             <input type="checkbox" id="hideRedirected" checked onchange="renderIncidentsTable()" style="cursor:pointer;"> Hide Redirected
                         </label>
@@ -815,7 +1022,7 @@
 
             <!-- TAB: IOC Upload -->
             <div class="dash-tab-content" id="tab-ioc">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <div class="ioc-upload-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
                     <!-- Manual Upload -->
                     <div class="chart-card" style="max-height: none;">
                         <div class="chart-title">📤 Manual IOC Upload</div>
@@ -923,20 +1130,35 @@
             <div class="dash-tab-content" id="tab-logs">
                 <div class="logs-toolbar">
                     <label style="color:#e2e8f0; font-weight:600;">📋 Application Logs</label>
-                    <select id="logLines" onchange="fetchLogs()">
-                        <option value="100">Last 100 lines</option>
-                        <option value="200" selected>Last 200 lines</option>
-                        <option value="500">Last 500 lines</option>
-                        <option value="1000">Last 1000 lines</option>
+                    <select id="logFile" onchange="fetchLogs()">
+                        <option value="error">Error Log</option>
+                        <option value="access">Access Log</option>
                     </select>
-                    <input type="text" id="logFilter" placeholder="Filter…" oninput="filterLogDisplay()" style="width:180px;">
+                    <select id="logLines" onchange="fetchLogs()">
+                        <option value="100">Last 100</option>
+                        <option value="200" selected>Last 200</option>
+                        <option value="500">Last 500</option>
+                        <option value="1000">Last 1000</option>
+                    </select>
+                    <input type="text" id="logFilter" placeholder="Filter text…" oninput="filterLogDisplay()" style="width:160px;">
                     <button class="refresh-btn" onclick="fetchLogs()">🔄 Refresh</button>
                     <label style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-size:13px;cursor:pointer;">
-                        <input type="checkbox" id="logAutoRefresh" onchange="toggleLogAutoRefresh()"> Auto-refresh (10s)
+                        <input type="checkbox" id="logAutoRefresh" onchange="toggleLogAutoRefresh()"> Auto (10s)
                     </label>
+                </div>
+                <div class="logs-toolbar" style="margin-top:-6px;">
+                    <span style="color:#64748b;font-size:11px;margin-right:4px;">Level:</span>
+                    <button class="log-filter-btn active" data-level="all" onclick="setLogLevel(this,'all')">All</button>
+                    <button class="log-filter-btn" data-level="CRITICAL" onclick="setLogLevel(this,'CRITICAL')">Critical</button>
+                    <button class="log-filter-btn" data-level="ERROR" onclick="setLogLevel(this,'ERROR')">Error</button>
+                    <button class="log-filter-btn" data-level="WARNING" onclick="setLogLevel(this,'WARNING')">Warning</button>
+                    <button class="log-filter-btn" data-level="INFO" onclick="setLogLevel(this,'INFO')">Info</button>
+                    <button class="log-filter-btn" data-level="DEBUG" onclick="setLogLevel(this,'DEBUG')">Debug</button>
                     <span id="logMeta" style="margin-left:auto;color:#64748b;font-size:12px;"></span>
                 </div>
-                <div class="logs-viewer" id="logViewer">Logs not loaded yet. Click Refresh or enable auto-refresh.</div>
+                <div class="logs-viewer" id="logViewer">
+                    <div style="padding:20px; color:#64748b; text-align:center;">Logs not loaded yet. Click Refresh or enable auto-refresh.</div>
+                </div>
             </div>
 
         </div>
@@ -1106,6 +1328,7 @@
         <textarea class="kql-textarea" id="kqlInput" placeholder="Enter KQL query… (Ctrl+Enter to run)" spellcheck="false"></textarea>
         <div class="kql-toolbar">
             <button class="refresh-btn" onclick="runKql()">▶ Run Query</button>
+            <select id="kqlWorkspace" title="Sentinel workspace"><option value="">Loading…</option></select>
             <select id="kqlTemplates" onchange="loadKqlTemplate()">
                 <option value="">📋 Templates…</option>
                 <option value="SecurityIncident\n| where TimeGenerated > ago(7d)\n| summarize count() by Severity\n| order by count_ desc">Incidents by severity (7d)</option>
@@ -1191,13 +1414,16 @@
 
             <div class="settings-section">
                 <h3>📡 Data Sources</h3>
+                <!-- Sentinel Workspaces Manager -->
                 <div class="settings-field">
-                    <label>Log Analytics Workspace ID</label>
-                    <input type="text" id="cfg_SENTINEL_WORKSPACE_ID" placeholder="Sentinel workspace GUID">
-                </div>
-                <div class="settings-field">
-                    <label>Workspace Name</label>
-                    <input type="text" id="cfg_SENTINEL_WORKSPACE_NAME" placeholder="e.g. SDLWS">
+                    <label>Sentinel Workspaces</label>
+                    <div id="workspaceList" style="margin-bottom:8px;"></div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <input type="text" id="wsNewId" placeholder="Workspace GUID" style="flex:2; min-width:180px;">
+                        <input type="text" id="wsNewName" placeholder="Display name" style="flex:1; min-width:120px;">
+                        <button class="refresh-btn" onclick="addWorkspace()" style="padding:8px 14px;">+ Add</button>
+                    </div>
+                    <small>Add Log Analytics workspace IDs. The ★ workspace is used by default for incident fetch and AI queries.</small>
                 </div>
                 <div class="settings-field">
                     <label>VirusTotal API Key</label>
@@ -1367,6 +1593,8 @@
                 // Show settings gear for admins
                 if (currentUser.is_admin) {
                     document.getElementById('settingsBtn').style.display = '';
+                    const mobBtn = document.getElementById('settingsBtnMobile');
+                    if (mobBtn) mobBtn.style.display = '';
                 }
                 return true;
             } catch (e) {
@@ -1416,6 +1644,8 @@
             } catch (e) {
                 console.error('Load settings error:', e);
             }
+            // Load workspaces into settings manager
+            loadSettingsWorkspaces();
         }
 
         function toggleEscMethod(method) {
@@ -1430,7 +1660,7 @@
 
         async function saveSettings() {
             const status = document.getElementById('settingsStatus');
-            const keys = ['TENANT_ID','CLIENT_ID','CLIENT_SECRET','SENTINEL_WORKSPACE_ID','SENTINEL_WORKSPACE_NAME',
+            const keys = ['TENANT_ID','CLIENT_ID','CLIENT_SECRET',
                           'VIRUSTOTAL_API_KEY','ABUSEIPDB_API_KEY','TALOS_API_KEY','REFRESH_INTERVAL_MINUTES','INCIDENTS_DISPLAY_LIMIT',
                           'ESCALATION_EMAIL','TEAMS_CHANNEL_ID','TEAMS_WEBHOOK_URL',
                           'FOUNDRY_ENDPOINT','FOUNDRY_DEPLOYMENT','FOUNDRY_PROJECT_ENDPOINT','FOUNDRY_AGENT_NAME'];
@@ -1474,6 +1704,55 @@
                 status.className = 'settings-status error';
                 status.textContent = '❌ Network error saving settings.';
             }
+        }
+
+        // ── Workspace Manager ──
+        function renderWorkspaceList(workspaces) {
+            const container = document.getElementById('workspaceList');
+            if (!container) return;
+            if (!workspaces.length) { container.innerHTML = '<span style="color:var(--text-faint);font-size:13px;">No workspaces configured yet.</span>'; return; }
+            container.innerHTML = workspaces.map(ws => `
+                <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border-color);" data-ws-row="${ws.id}">
+                    <span style="flex:1;font-size:13px;" title="${esc(ws.workspace_id)}">${esc(ws.name)} ${ws.is_default ? '★' : ''}</span>
+                    <span style="font-size:11px;color:var(--text-faint);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(ws.workspace_id)}</span>
+                    ${ws.is_default ? '' : `<button onclick="setWsDefault(${ws.id})" title="Set as default" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-faint);">★</button>`}
+                    <button onclick="removeWs(${ws.id})" title="Remove" style="background:none;border:none;cursor:pointer;font-size:16px;color:#e74c3c;">✕</button>
+                </div>`).join('');
+        }
+        async function loadSettingsWorkspaces() {
+            try {
+                const res = await fetch('/api/workspaces');
+                if (!res.ok) return;
+                const ws = await res.json();
+                renderWorkspaceList(ws);
+            } catch (e) { /* ignore */ }
+        }
+        async function addWorkspace() {
+            const idInput = document.getElementById('wsNewId');
+            const nameInput = document.getElementById('wsNewName');
+            const wsId = idInput.value.trim();
+            const name = nameInput.value.trim();
+            if (!wsId || !name) return;
+            try {
+                const res = await fetch('/api/workspaces', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspace_id: wsId, name: name, is_default: !cachedWorkspaces.length })
+                });
+                if (res.ok) { idInput.value = ''; nameInput.value = ''; loadSettingsWorkspaces(); loadWorkspaces(); }
+            } catch (e) { /* ignore */ }
+        }
+        async function removeWs(id) {
+            try {
+                await fetch(`/api/workspaces/${id}`, { method: 'DELETE' });
+                loadSettingsWorkspaces(); loadWorkspaces();
+            } catch (e) { /* ignore */ }
+        }
+        async function setWsDefault(id) {
+            try {
+                await fetch(`/api/workspaces/${id}/default`, { method: 'PUT' });
+                loadSettingsWorkspaces(); loadWorkspaces();
+            } catch (e) { /* ignore */ }
         }
 
         async function testConnection() {
@@ -1556,6 +1835,30 @@
             } catch (e) { console.warn('Feature flags unavailable:', e); }
         }
 
+        // ── Workspace Loader ──
+        let cachedWorkspaces = [];
+        async function loadWorkspaces() {
+            try {
+                const res = await fetch('/api/workspaces');
+                if (!res.ok) return;
+                cachedWorkspaces = await res.json();
+                const sel = document.getElementById('kqlWorkspace');
+                if (!sel) return;
+                sel.innerHTML = '';
+                if (!cachedWorkspaces.length) {
+                    sel.innerHTML = '<option value="">No workspaces configured</option>';
+                    return;
+                }
+                cachedWorkspaces.forEach(ws => {
+                    const opt = document.createElement('option');
+                    opt.value = ws.workspace_id;
+                    opt.textContent = ws.name + (ws.is_default ? ' ★' : '');
+                    if (ws.is_default) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+            } catch (e) { console.warn('Workspace load failed:', e); }
+        }
+
         // ── KQL Console ──
         let kqlHistory = [];
         function loadKqlTemplate() {
@@ -1577,7 +1880,7 @@
                 const res = await fetch('/api/sentinel/query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query })
+                    body: JSON.stringify({ query, workspace_id: document.getElementById('kqlWorkspace').value || undefined })
                 });
                 const data = await res.json();
                 if (!res.ok) { meta.textContent = '❌ ' + (data.error || 'Query failed'); return; }
@@ -1734,29 +2037,84 @@
         // ── Logs viewer ──
         let logAutoRefreshTimer = null;
         let allLogLines = [];
+        let allParsedLogs = [];
+        let activeLogLevel = 'all';
+
         async function fetchLogs() {
             const viewer = document.getElementById('logViewer');
             const meta = document.getElementById('logMeta');
             const lines = document.getElementById('logLines').value;
-            viewer.textContent = '⏳ Loading…';
+            const file = document.getElementById('logFile').value;
+            viewer.innerHTML = '<div style="padding:20px;color:#64748b;text-align:center;">⏳ Loading…</div>';
             try {
-                const res = await fetch('/api/logs?lines=' + lines);
-                if (res.status === 403) { viewer.textContent = '🔒 Logs viewer is disabled — enable it in Settings.'; return; }
-                if (!res.ok) { viewer.textContent = '❌ Failed to load logs.'; return; }
+                const res = await fetch(`/api/logs?lines=${lines}&file=${encodeURIComponent(file)}`);
+                if (res.status === 403) { viewer.innerHTML = '<div style="padding:20px;color:#f87171;text-align:center;">🔒 Logs viewer is disabled — enable it in Settings.</div>'; return; }
+                if (!res.ok) { viewer.innerHTML = '<div style="padding:20px;color:#f87171;text-align:center;">❌ Failed to load logs.</div>'; return; }
                 const data = await res.json();
-                if (data.error && !data.lines) { viewer.textContent = '❌ ' + data.error; return; }
+                if (data.error && !data.parsed) { viewer.innerHTML = `<div style="padding:20px;color:#f87171;text-align:center;">❌ ${escapeHtml(data.error)}</div>`; return; }
+                allParsedLogs = data.parsed || [];
                 allLogLines = data.lines || [];
-                if (meta) meta.textContent = allLogLines.length + ' lines from ' + (data.path || 'unknown');
+                const counts = {};
+                allParsedLogs.forEach(l => { const lv = l.level || '?'; counts[lv] = (counts[lv]||0)+1; });
+                const countStr = Object.entries(counts).map(([k,v]) => `${k}:${v}`).join(' · ');
+                if (meta) meta.textContent = `${allParsedLogs.length} lines from ${data.path || '?'} — ${countStr}`;
                 filterLogDisplay();
-            } catch (e) { viewer.textContent = '❌ Network error: ' + e.message; }
+            } catch (e) { viewer.innerHTML = `<div style="padding:20px;color:#f87171;text-align:center;">❌ Network error: ${escapeHtml(e.message)}</div>`; }
         }
+
+        function setLogLevel(btn, level) {
+            activeLogLevel = level;
+            document.querySelectorAll('.log-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            filterLogDisplay();
+        }
+
         function filterLogDisplay() {
             const viewer = document.getElementById('logViewer');
-            const filter = (document.getElementById('logFilter').value || '').toLowerCase();
-            const lines = filter ? allLogLines.filter(l => l.toLowerCase().includes(filter)) : allLogLines;
-            viewer.textContent = lines.length ? lines.join('') : '(no matching lines)';
+            const textFilter = (document.getElementById('logFilter').value || '').toLowerCase();
+            const isAccess = (document.getElementById('logFile').value === 'access');
+
+            let rows = allParsedLogs;
+            if (activeLogLevel !== 'all') {
+                rows = rows.filter(l => l.level === activeLogLevel);
+            }
+            if (textFilter) {
+                rows = rows.filter(l => l.raw.toLowerCase().includes(textFilter));
+            }
+
+            if (!rows.length) {
+                viewer.innerHTML = '<div style="padding:20px;color:#64748b;text-align:center;">(no matching lines)</div>';
+                return;
+            }
+
+            const levelClass = lv => {
+                const l = (lv||'').toLowerCase();
+                if (l === 'critical' || l === 'error') return 'log-level-error';
+                if (l === 'warning') return 'log-level-warning';
+                if (l === 'info') return 'log-level-info';
+                if (l === 'debug') return 'log-level-debug';
+                return 'log-level-unknown';
+            };
+
+            let html = '<table><thead><tr><th>Time</th><th>Level</th>';
+            if (isAccess) html += '<th>Status</th><th>IP</th>';
+            html += '<th>Message</th></tr></thead><tbody>';
+            rows.forEach(r => {
+                html += `<tr><td class="log-ts">${escapeHtml(r.ts)}</td>`;
+                html += `<td><span class="log-level ${levelClass(r.level)}">${escapeHtml(r.level||'—')}</span></td>`;
+                if (isAccess) {
+                    const sc = r.status||0;
+                    const scClass = sc>=500?'log-level-error':sc>=400?'log-level-warning':'log-level-info';
+                    html += `<td><span class="log-level ${scClass}">${sc||'—'}</span></td>`;
+                    html += `<td style="color:#64748b;">${escapeHtml(r.ip||'')}</td>`;
+                }
+                html += `<td class="log-msg">${escapeHtml(r.msg)}</td></tr>`;
+            });
+            html += '</tbody></table>';
+            viewer.innerHTML = html;
             viewer.scrollTop = viewer.scrollHeight;
         }
+
         function toggleLogAutoRefresh() {
             const on = document.getElementById('logAutoRefresh').checked;
             if (logAutoRefreshTimer) { clearInterval(logAutoRefreshTimer); logAutoRefreshTimer = null; }
@@ -1851,6 +2209,9 @@
 
                 // Load feature flags (show/hide KQL + AI panels)
                 loadFeatureFlags();
+
+                // Load workspace list for KQL console dropdown
+                loadWorkspaces();
                 
                 // Use server-provided refresh interval
                 const interval = parseInt(data.refreshInterval) || 60;
@@ -1994,7 +2355,7 @@
                 }
                 
                 // Calculate Mean Time to Resolve from resolved incidents
-                const resolvedIncidents = incidents.filter(i => i.status === 'Resolved');
+                const resolvedIncidents = incidents.filter(i => normalizeIncidentStatusKey(i.status) === 'closed');
                 if (resolvedIncidents.length > 0) {
                     let totalResolveTime = 0;
                     resolvedIncidents.forEach(incident => {
@@ -2077,9 +2438,9 @@
             };
             
             const statusCounts = {
-                'Active': incidents.filter(i => i.status === 'Active').length,
-                'Investigating': incidents.filter(i => i.status === 'Investigating').length,
-                'Resolved': incidents.filter(i => i.status === 'Resolved').length
+                'New': incidents.filter(i => normalizeIncidentStatusKey(i.status) === 'new').length,
+                'In progress (Active)': incidents.filter(i => normalizeIncidentStatusKey(i.status) === 'active').length,
+                'Resolved (Closed)': incidents.filter(i => normalizeIncidentStatusKey(i.status) === 'closed').length
             };
 
             console.log('📈 Creating charts - Severity:', severityCounts, 'Status:', statusCounts);
@@ -2169,7 +2530,45 @@
         }
 
         let allIncidents = [];
-        let currentIncidentFilter = 'all';
+        let currentIncidentSeverityFilter = 'all';
+        let currentIncidentStatusFilter = 'all';
+
+        function normalizeIncidentStatusKey(status) {
+            const normalized = String(status || '').trim().toLowerCase().replace(/[_\s]/g, '');
+            if (normalized === 'inprogress' || normalized === 'active') return 'active';
+            if (normalized === 'resolved' || normalized === 'closed') return 'closed';
+            if (normalized === 'new') return 'new';
+            if (normalized === 'redirected') return 'redirected';
+            return normalized;
+        }
+
+        function getIncidentStatusClass(status) {
+            const key = normalizeIncidentStatusKey(status);
+            if (key === 'active') return 'status-inprogress';
+            if (key === 'closed') return 'status-closed';
+            if (key === 'new') return 'status-new';
+            if (key === 'redirected') return 'status-redirected';
+            return `status-${key}`;
+        }
+
+        function getIncidentStatusLabel(status) {
+            const key = normalizeIncidentStatusKey(status);
+            if (key === 'active') return 'In progress (Active)';
+            if (key === 'closed') return 'Resolved (Closed)';
+            if (key === 'new') return 'New';
+            if (key === 'redirected') return 'Redirected';
+            return status || 'Unknown';
+        }
+
+        function syncIncidentFilterButtons() {
+            document.querySelectorAll('.incidents-table .filter-btn').forEach(btn => {
+                const filterType = btn.dataset.filterType;
+                const filterValue = btn.dataset.filterValue;
+                const isActive = (filterType === 'severity' && filterValue === currentIncidentSeverityFilter)
+                    || (filterType === 'status' && filterValue === currentIncidentStatusFilter);
+                btn.classList.toggle('active', Boolean(isActive));
+            });
+        }
 
         function updateIncidentsTable(incidents) {
             allIncidents = incidents || [];
@@ -2185,7 +2584,7 @@
             // Hide redirected if checkbox is checked
             const hideRedirected = document.getElementById('hideRedirected');
             if (hideRedirected && hideRedirected.checked) {
-                filtered = filtered.filter(inc => inc.status.toLowerCase() !== 'redirected');
+                filtered = filtered.filter(inc => normalizeIncidentStatusKey(inc.status) !== 'redirected');
             }
             
             // Apply threat type filter first
@@ -2193,14 +2592,12 @@
                 filtered = filtered.filter(inc => window.threatTypeFilter.ids.includes(inc.id));
             }
             
-            // Then apply severity/status filter
-            if (currentIncidentFilter !== 'all') {
-                filtered = filtered.filter(inc => {
-                    const filter = currentIncidentFilter.toLowerCase();
-                    const severity = inc.severity.toLowerCase();
-                    const status = inc.status.toLowerCase();
-                    return severity === filter || status === filter;
-                });
+            // Then apply severity and status filters independently.
+            if (currentIncidentSeverityFilter !== 'all') {
+                filtered = filtered.filter(inc => (inc.severity || '').toLowerCase() === currentIncidentSeverityFilter);
+            }
+            if (currentIncidentStatusFilter !== 'all') {
+                filtered = filtered.filter(inc => normalizeIncidentStatusKey(inc.status) === currentIncidentStatusFilter);
             }
             
             if (filtered.length === 0) {
@@ -2231,8 +2628,8 @@
                     </td>
                     <td><span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span></td>
                     <td>
-                        <span class="status-badge status-${inc.status.toLowerCase()}">${inc.status}</span>
-                        ${inc.status.toLowerCase() === 'redirected' && inc.redirectIncidentId ? `<br><small style="color:#7b1fa2;">→ #${inc.redirectIncidentId}</small>` : ''}
+                        <span class="status-badge ${getIncidentStatusClass(inc.status)}">${getIncidentStatusLabel(inc.status)}</span>
+                        ${normalizeIncidentStatusKey(inc.status) === 'redirected' && inc.redirectIncidentId ? `<br><small style="color:#7b1fa2;">→ #${inc.redirectIncidentId}</small>` : ''}
                     </td>
                     <td>${inc.assignedTo || inc.owner || 'Unassigned'}</td>
                     <td>${new Date(inc.createdTime || inc.created).toLocaleString()}</td>
@@ -2240,16 +2637,9 @@
             `}).join('');
         }
 
-        function filterIncidents(filter) {
-            currentIncidentFilter = String(filter || 'all').toLowerCase();
+        function applyIncidentFiltersAndFocus() {
             if (typeof switchTab === 'function') switchTab('incidents');
-
-            const buttons = Array.from(document.querySelectorAll('.incidents-table .filter-btn'));
-            buttons.forEach(btn => btn.classList.remove('active'));
-            const wanted = currentIncidentFilter;
-            const targetBtn = buttons.find(btn => btn.textContent.trim().toLowerCase() === wanted);
-            if (targetBtn) targetBtn.classList.add('active');
-
+            syncIncidentFilterButtons();
             setTimeout(() => {
                 const table = document.querySelector('.incidents-table');
                 if (table) {
@@ -2259,8 +2649,21 @@
             renderIncidentsTable();
         }
 
+        function filterIncidents(filter) {
+            // Backward compatibility for legacy calls.
+            const normalized = String(filter || 'all').toLowerCase();
+            if (normalized === 'all') {
+                currentIncidentSeverityFilter = 'all';
+                currentIncidentStatusFilter = 'all';
+                applyIncidentFiltersAndFocus();
+                return;
+            }
+            filterIncidentsBySeverity(filter);
+        }
+
         function filterIncidentsBySeverity(severity) {
-            filterIncidents(severity);
+            currentIncidentSeverityFilter = String(severity || 'all').toLowerCase();
+            applyIncidentFiltersAndFocus();
         }
         
         function filterByThreatType(type) {
@@ -2361,7 +2764,8 @@
         }
 
         function filterIncidentsByStatus(status) {
-            filterIncidents(status);
+            currentIncidentStatusFilter = normalizeIncidentStatusKey(status || 'all') || 'all';
+            applyIncidentFiltersAndFocus();
         }
 
         function getRecommendationsHtml(recommendations, categoryFilter) {
@@ -2647,7 +3051,7 @@
             const canCloseIncident = Boolean(
                 window.featureFlags?.close_incident &&
                 String(incident.id).match(/^\d+$/) &&
-                (incident.status || '').toLowerCase() !== 'resolved'
+                normalizeIncidentStatusKey(incident.status) !== 'closed'
             );
             
             // Format entities list
@@ -2697,10 +3101,10 @@
                 <h2>🔍 Incident Details</h2>
                 <div style="margin: 20px 0;">
                     <span class="severity-badge severity-${incident.severity.toLowerCase()}">${incident.severity}</span>
-                    <span class="status-badge status-${incident.status.toLowerCase()}">${incident.status}</span>
+                    <span class="status-badge ${getIncidentStatusClass(incident.status)}">${getIncidentStatusLabel(incident.status)}</span>
                 </div>
                 
-                ${incident.status.toLowerCase() === 'redirected' ? `
+                ${normalizeIncidentStatusKey(incident.status) === 'redirected' ? `
                 <div style="background:#f3e5f5;border:1px solid #ce93d8;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
                     <strong>↪️ Redirected</strong> — This incident was merged into 
                     ${incident.redirectIncidentId
@@ -3615,7 +4019,7 @@
             notification.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <span>🎯 Filtering by Confidence: <strong>${level.toUpperCase()}</strong></span>
-                    <button onclick="this.parentElement.parentElement.remove(); currentIncidentFilter='all'; renderIncidentsTable();" style="background: white; color: #9C27B0; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">Clear</button>
+                    <button onclick="this.parentElement.parentElement.remove(); currentIncidentSeverityFilter='all'; currentIncidentStatusFilter='all'; syncIncidentFilterButtons(); renderIncidentsTable();" style="background: white; color: #9C27B0; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">Clear</button>
                 </div>
                 <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">Showing ${severity} severity incidents</div>
             `;
@@ -4441,13 +4845,13 @@
 
                     const statusBadges = document.querySelectorAll('#modalContent .status-badge');
                     statusBadges.forEach(b => {
-                        b.className = 'status-badge status-resolved';
-                        b.textContent = 'Resolved';
+                        b.className = 'status-badge status-closed';
+                        b.textContent = 'Resolved (Closed)';
                     });
 
                     const inc = allIncidents.find(i => String(i.id) === String(incidentId));
                     if (inc) {
-                        inc.status = 'Resolved';
+                        inc.status = 'Closed';
                         inc.classification = data.classification;
                         inc.determination = data.determination;
                     }
@@ -4842,6 +5246,13 @@
                 hour12: false
             });
             document.getElementById('lastRefresh').textContent = timeString;
+            const mob = document.getElementById('lastRefreshMobile');
+            if (mob) mob.textContent = timeString;
+        }
+
+        function toggleMobileDrawer() {
+            const drawer = document.getElementById('mobileDrawer');
+            drawer.classList.toggle('open');
         }
 
         // ── Theme Toggle ──────────────────────────────
