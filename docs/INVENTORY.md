@@ -45,6 +45,7 @@
 | `README.md` | Quick start, feature summary, project structure, production deployment guide |
 | `docs/ARCHITECTURE.md` | Component diagram, data flow, DB schema, tech stack, deployment topology |
 | `docs/INVENTORY.md` | This file — file-by-file inventory |
+| `docs/AI_SETUP.md` | How to configure Azure AI Foundry / OpenAI integration (agent mode, direct completion, MCP tools) |
 | `docs/SECURITY_FIXES.md` | Tracked vulnerability discoveries and patches (8 entries) |
 | `SECURITY.md` | GitHub security policy (vulnerability reporting) |
 | `LICENSE` | MIT License |

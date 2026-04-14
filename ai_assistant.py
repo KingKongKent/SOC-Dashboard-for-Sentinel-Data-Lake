@@ -299,10 +299,10 @@ def ask_agent(
         # SP token for Data Lake server
         sp_token = credential.get_token(SENTINEL_MCP_SCOPE).token
         sp_claims = _decode_jwt_claims(sp_token)
-        log.info('Data Lake SP token claims: %s', sp_claims)
+        log.debug('Data Lake SP token claims: %s', sp_claims)
         if triage_token:
             triage_claims = _decode_jwt_claims(triage_token)
-            log.info('Triage delegated token claims: %s', triage_claims)
+            log.debug('Triage delegated token claims: %s', triage_claims)
 
         # Build MCP tools — SP token for Data Lake, triage token for Triage
         tools = []
@@ -332,10 +332,24 @@ def ask_agent(
             messages.append({'role': msg['role'], 'content': msg['content']})
         messages.append({'role': 'user', 'content': question})
 
+        # Build workspace-aware instructions
+        ws_instructions = AGENT_INSTRUCTIONS
+        try:
+            from database import get_workspaces
+            ws_list = get_workspaces()
+            if ws_list:
+                ws_lines = '\n'.join(
+                    f"  - {w['name']}: {w['workspace_id']}" + (' (default)' if w['is_default'] else '')
+                    for w in ws_list
+                )
+                ws_instructions += f"\n\nAvailable Sentinel workspaces:\n{ws_lines}\nUse the default workspace for query_lake unless the analyst specifies another."
+        except Exception:
+            pass
+
         def _invoke(tool_list: list) -> dict:
             resp = oai.responses.create(
                 model=deployment,
-                instructions=AGENT_INSTRUCTIONS,
+                instructions=ws_instructions,
                 input=messages,
                 tools=tool_list,
                 timeout=90,
@@ -458,6 +472,6 @@ def ask_assistant(question: str, history: list[dict] | None = None) -> dict:
                 results = run_kql(kql)
             except Exception as exc:
                 log.warning('Generated KQL failed: %s', exc)
-                error = str(exc)
+                error = 'Generated KQL query failed — check server logs'
 
     return {'answer': answer, 'kql': kql, 'results': results, 'error': error}
