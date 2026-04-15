@@ -27,6 +27,7 @@
 | `scripts/pre_commit_check.py` | Pre-commit scanner for leaked secrets and common vulns |
 | `scripts/generate_demo_data.py` | Standalone demo data generator. Writes `dashboard_data.json` with synthetic incidents, alerts, Secure Score. Optional `--db` flag inserts into SQLite. |
 | `scripts/deploy_lxc.sh` | Automated FHS-compliant deployment to Ubuntu 24.04 LXC. Auto-generates self-signed TLS if no Let's Encrypt cert. Merges new `.env.example` keys into existing `.env`. Auto-detects `server_name` from `REDIRECT_URI`. Includes health checks. |
+| `scripts/update_from_git.sh` | Git-based update/install script. Clones on first run, pulls on subsequent runs. Auto-restarts services, updates pip deps if requirements.txt changed. Supports `--branch`, `--no-restart`, `--full-deploy` flags. |
 | `scripts/setup_systemd.sh` | Creates systemd units: dashboard.service + hourly-refresh.timer (FHS paths) |
 | `scripts/nginx_site.conf` | nginx reverse proxy config template (replace `YOUR_DOMAIN` before use) |
 

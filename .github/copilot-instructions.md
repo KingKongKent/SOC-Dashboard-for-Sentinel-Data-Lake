@@ -94,6 +94,7 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 | `soc-dashboard-live.html` | Frontend SPA (auth-gated + settings overlay) | UI changes, new charts/widgets |
 | `setup.html` | First-run setup wizard (auto-shown when creds missing) | Changing setup fields, adding validation |
 | `scripts/deploy_lxc.sh` | LXC deployment automation | Changing server setup, packages, paths |
+| `scripts/update_from_git.sh` | Git-based code pull + service restart | Changing repo URL, restart logic |
 | `scripts/setup_systemd.sh` | systemd service/timer setup | Changing gunicorn workers, service config |
 | `scripts/nginx_site.conf` | nginx reverse proxy template | TLS config, proxy settings, caching rules |
 | `scripts/pre_commit_check.py` | Pre-commit security scanner | Adding new scan patterns |
