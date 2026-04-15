@@ -41,35 +41,63 @@ as a service principal for:
 - Authenticating to the Foundry project via `ClientSecretCredential`
 - Acquiring Sentinel MCP tokens (scope: `4500ebfb-89b6-4b14-a480-7f749797bfcd/.default`)
 
-#### Required API Permissions
+#### Step A — Azure RBAC Role Assignments (CLI or Azure Portal → IAM)
 
-Add these **application** permissions to the app registration (in addition to
-existing delegated permissions for user login):
+These are **Azure RBAC roles** on specific resources — they are NOT Entra "API
+permissions". Assign them via **CLI** or via **Azure Portal → Resource → Access
+control (IAM) → Add role assignment**.
 
-| API | Permission | Type | Purpose |
-|-----|-----------|------|---------|
-| Azure AI Services (Cognitive Services) | `Cognitive Services OpenAI User` | Application | Direct completion fallback |
-| Microsoft Sentinel Platform | `4500ebfb-89b6-4b14-a480-7f749797bfcd/.default` | Application | Data Lake MCP server (SP token) |
+| Role | Scope (assign on…) | Purpose | CLI Example |
+|------|---------------------|---------|-------------|
+| `Cognitive Services OpenAI User` | Your Azure AI Services resource | Direct completion fallback — lets the SP call the OpenAI endpoint | `az role assignment create --assignee <CLIENT_ID> --role "Cognitive Services OpenAI User" --scope /subscriptions/<SUB>/resourceGroups/<RG>/providers/Microsoft.CognitiveServices/accounts/<RESOURCE>` |
+| `Azure AI Developer` | Your AI Foundry resource or its resource group | Agent mode — lets the SP call the Foundry Responses API | `az role assignment create --assignee <CLIENT_ID> --role "Azure AI Developer" --scope /subscriptions/<SUB>/resourceGroups/<RG>` |
 
-For the **Triage MCP server** (Defender XDR entity drill-down), the dashboard
-uses **delegated** tokens acquired from the logged-in user's session. Add this
-delegated permission:
+> **Where to do this:** Azure Portal → navigate to the AI Services / Foundry
+> resource → **Access control (IAM)** → Add role assignment. Or use `az role
+> assignment create` in CLI. These roles do **not** appear in the Entra app
+> registration's "API permissions" blade.
 
-| API | Permission | Type | Purpose |
-|-----|-----------|------|---------|
-| Microsoft Defender MCP | `MCP.Read.All` | Delegated | Triage MCP server (user token) |
+#### Step B — Entra ID API Permissions (Portal → App registrations)
 
-> **Note:** After adding permissions, grant admin consent in the Azure portal.
+These are added in **Entra ID → App registrations → [your app] → API
+permissions → Add a permission**.
 
-#### Foundry RBAC
+> **Important:** The APIs below are NOT under the "Microsoft APIs" tab. You must
+> click **"APIs my organization uses"** and search by app ID or name.
 
-The service principal needs a role assignment on the AI Foundry project:
+**Delegated permission (for Triage MCP — user's session token):**
 
-```
-Azure AI Developer
-```
+1. Go to API permissions → **Add a permission** → **APIs my organization uses**
+2. Search for `7b7b3966-1961-47b5-b080-43ca5482e21c` or `Microsoft Defender MCP`
+3. Select **Delegated permissions** → check `MCP.Read.All` → Add
+4. Click **Grant admin consent** for your tenant
 
-Assign it at the AI Foundry resource or resource-group scope.
+| API | App ID | Permission | Type | Purpose |
+|-----|--------|-----------|------|---------|
+| Microsoft Defender MCP | `7b7b3966-1961-47b5-b080-43ca5482e21c` | `MCP.Read.All` | Delegated | Triage MCP server — Defender XDR entity drill-down via logged-in user |
+
+**Application permission (for Data Lake MCP — service principal token):**
+
+The Data Lake MCP server uses the Sentinel Platform scope
+(`4500ebfb-89b6-4b14-a480-7f749797bfcd/.default`). This may not appear as a
+selectable permission in the portal. If it does:
+
+1. Go to API permissions → **Add a permission** → **APIs my organization uses**
+2. Search for `4500ebfb-89b6-4b14-a480-7f749797bfcd` or `Microsoft Sentinel Platform`
+3. Select **Application permissions** → add the available scope → Grant admin consent
+
+If the Sentinel Platform service principal is not visible in your tenant, the SP
+token still works as long as the service principal has the correct Sentinel RBAC
+roles (e.g., `Microsoft Sentinel Reader` on the workspace).
+
+#### Summary: Where to Do What
+
+| What | Where | How |
+|------|-------|-----|
+| `Cognitive Services OpenAI User` | Azure Portal → AI Services resource → IAM | RBAC role assignment (not an API permission) |
+| `Azure AI Developer` | Azure Portal → Foundry resource → IAM | RBAC role assignment |
+| `MCP.Read.All` (Defender MCP) | Entra Portal → App registration → API permissions | Delegated permission → "APIs my organization uses" → search `7b7b3966...` |
+| Sentinel Platform scope | Entra Portal → App registration → API permissions | Application permission → "APIs my organization uses" → search `4500ebfb...` (may not be visible — see note above) |
 
 ### 3. Python Dependencies
 
