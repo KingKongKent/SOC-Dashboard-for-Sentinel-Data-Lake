@@ -308,3 +308,17 @@ graph LR
 - **Dashboard authentication** — Entra ID login required (OAuth2 authorization code flow, multi-tenant)
 - **Admin access** — Entra app role (configurable, default `Admin`) required for settings page
 - **Config encryption** — Secrets stored in SQLite `config` table are Fernet-encrypted; key stored at `CONFIG_KEY_PATH`
+
+### Update Workflow
+
+Two deployment paths are supported:
+
+**Git-based (recommended):** `scripts/update_from_git.sh`
+1. First run: clones the repo into `/opt/soc-dashboard`
+2. Subsequent runs: `git pull --ff-only`, stashing local hotfixes first
+3. Updates pip deps if `requirements.txt` changed
+4. Restarts `dashboard.service` and verifies health
+5. Reloads nginx if `nginx_site.conf` changed (with `nginx -t` validation)
+6. Flags: `--branch <name>`, `--no-restart`, `--full-deploy` (re-runs `deploy_lxc.sh`)
+
+**SCP-based:** Copy changed files manually, restart service. No git required on the server.

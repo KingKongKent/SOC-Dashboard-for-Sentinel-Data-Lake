@@ -57,6 +57,17 @@ powershell -File scripts/setup_task_scheduler.ps1
 
 ### Automated Deployment
 
+**Option A — Git-based (recommended):**
+```bash
+# 1. On a fresh LXC, clone and deploy in one go
+ssh root@<LXC_IP> 'apt-get update -qq && apt-get install -y -qq git && \
+  git clone https://github.com/KingKongKent/SOC-Dashboard-for-Sentinel-Data-Lake.git /opt/soc-dashboard && \
+  bash /opt/soc-dashboard/scripts/deploy_lxc.sh'
+
+# 2. Open https://<LXC_IP_or_domain> → the Setup Wizard will launch automatically
+```
+
+**Option B — SCP-based (no git on server):**
 ```bash
 # 1. Copy files to the LXC
 scp *.py *.html requirements.txt .env.example root@<LXC_IP>:/opt/soc-dashboard/
@@ -65,10 +76,7 @@ scp -r scripts static root@<LXC_IP>:/opt/soc-dashboard/
 # 2. Run the deployment script
 ssh root@<LXC_IP> 'bash /opt/soc-dashboard/scripts/deploy_lxc.sh'
 
-# 3. (Optional) Replace self-signed cert with Let's Encrypt
-ssh root@<LXC_IP> 'certbot --nginx -d your-actual-domain.com'
-
-# 4. Open https://<LXC_IP_or_domain> → the Setup Wizard will launch automatically
+# 3. Open https://<LXC_IP_or_domain> → the Setup Wizard will launch automatically
 ```
 
 The deployment script (`scripts/deploy_lxc.sh`) will:
@@ -156,8 +164,26 @@ real_ip_header proxy_protocol;
 
 ### Updating After Code Changes
 
+**Git-based update (recommended):**
 ```bash
-# SCP changed files and restart
+# Pull latest and restart services automatically
+ssh root@<LXC_IP> 'bash /opt/soc-dashboard/scripts/update_from_git.sh'
+
+# Or with options:
+#   --branch dev          Pull from a different branch
+#   --no-restart          Pull code without restarting services
+#   --full-deploy         Re-run deploy_lxc.sh (for dependency or config changes)
+```
+
+The update script will:
+- Pull the latest commit (fast-forward only)
+- Stash any local hotfixes before pulling
+- Update pip dependencies if `requirements.txt` changed
+- Restart the `dashboard` service and verify health
+- Reload nginx if `nginx_site.conf` changed (with config validation)
+
+**Manual SCP update:**
+```bash
 scp <changed_files> root@<LXC_IP>:/opt/soc-dashboard/
 ssh root@<LXC_IP> 'systemctl restart dashboard'
 ```
