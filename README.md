@@ -277,6 +277,14 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 | `/api/sentinel/query` | POST | `@require_login` | Execute a KQL query (requires `KQL_CONSOLE_ENABLED`) |
 | `/api/sentinel/ai` | POST | `@require_login` | Ask the AI assistant (requires `AI_ASSISTANT_ENABLED`) |
 | `/api/incidents/<id>/attack-story` | POST | `@require_login` | Generate/retrieve AI attack story (requires `AI_ASSISTANT_ENABLED`) |
+| `/api/incidents/<id>/ai-enrich` | POST | `@require_login` | AI-analyse an incident and post analysis as Sentinel comment (requires `AI_ASSISTANT_ENABLED`) |
+| `/api/incidents/<id>/copilot-enrich` | POST | `@require_login` | Security Copilot enrichment via Foundry agent — risk score, entity reputations, actions (requires `SECURITY_COPILOT_ENABLED`) |
+| `/api/incidents/<id>/enrichment` | GET | `@require_login` | Return latest enrichment data for an incident |
+| `/api/webhooks/copilot-enrichment` | POST | HMAC | Logic App webhook callback for async enrichment results |
+| `/api/incidents/<id>/ai-enrich` | POST | `@require_login` | AI-analyse an incident and post analysis as Sentinel comment (requires `AI_ASSISTANT_ENABLED`) |
+| `/api/incidents/<id>/copilot-enrich` | POST | `@require_login` | Security Copilot enrichment via Foundry agent — risk score, entity reputations, actions (requires `SECURITY_COPILOT_ENABLED`) |
+| `/api/incidents/<id>/enrichment` | GET | `@require_login` | Return latest enrichment data for an incident |
+| `/api/webhooks/copilot-enrichment` | POST | HMAC | Logic App webhook callback for async enrichment results |
 
 ---
 
@@ -295,9 +303,13 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 | **Admin Settings** | Web UI for managing API keys, refresh interval, escalation email |
 | **Encrypted Config** | Secrets stored with Fernet encryption in SQLite |
 | **AI Assistant** | Chat-based security analysis via Azure AI Foundry with Sentinel MCP tools (agent mode) and direct OpenAI fallback. Auto-executes KQL from responses. Toggle: `AI_ASSISTANT_ENABLED` |
+| **Security Copilot Enrichment** | On-demand incident enrichment via Foundry agent — risk score (0–100 with severity gauge), executive summary (markdown-rendered), recommended actions, and entity reputation analysis. Results cached 1 hour. Comment auto-posted to Sentinel (≤1000 chars). Toggle: `SECURITY_COPILOT_ENABLED` |
+| **AI Analysis** | Lightweight AI incident analysis with markdown-rendered output. Auto-posts comment to Sentinel with 2-minute dedup window. Toggle: `AI_ASSISTANT_ENABLED` + `AI_AUTO_COMMENT_ENABLED` |
+| **Security Copilot Enrichment** | On-demand incident enrichment via Foundry agent — risk score (0–100 with severity gauge), executive summary (markdown-rendered), recommended actions, and entity reputation analysis. Results cached 1 hour. Comment auto-posted to Sentinel (≤1000 chars). Toggle: `SECURITY_COPILOT_ENABLED` |
+| **AI Analysis** | Lightweight AI incident analysis with markdown-rendered output. Auto-posts comment to Sentinel with 2-minute dedup window. Toggle: `AI_ASSISTANT_ENABLED` + `AI_AUTO_COMMENT_ENABLED` |
 | **KQL Console** | Run ad-hoc KQL queries against Log Analytics with 11 built-in templates, Ctrl+Enter shortcut, and tabular results. Toggle: `KQL_CONSOLE_ENABLED` |
 | **Attack Stories** | AI-generated incident narratives cached in SQLite — timeline, entities, MITRE mapping, next steps |
-| **Feature Toggles** | 7 admin-controlled toggles: AI Assistant, KQL Console, Defender TI Articles (requires ThreatIntelligence.Read.All + Defender TI license), AI Auto-Enrich, AI Auto-Comment, Close Incident, Logs Viewer |
+| **Feature Toggles** | 10 admin-controlled toggles: AI Assistant, KQL Console, Defender TI Articles, AI Auto-Enrich, AI Auto-Comment, Close Incident, Logs Viewer, Security Copilot, Copilot Auto-Enrich, Copilot Auto-Enrich Max Per Cycle |
 | **Auto-Refresh** | systemd timer (hourly) + configurable interval via settings |
 
 ## Project Structure
@@ -310,7 +322,9 @@ SOC-Dashboard/
 ├── auth.py                    # Entra ID MSAL login flow + @require_login / @require_admin
 ├── config_manager.py          # Encrypted config CRUD (DB → env fallback)
 ├── ai_assistant.py            # AI Foundry integration — agent (MCP tools) + direct fallback
+├── security_copilot.py        # Security Copilot enrichment — prompt builder, response parser, webhook
 ├── sentinel_kql.py            # KQL query engine — Log Analytics REST API
+├── ioc_upload.py              # IOC upload engine — Sentinel TI API + feed ingestion
 ├── append_data.py             # Incremental data append logic
 ├── hourly_refresh.py          # Scheduler with timeout wrapper
 ├── soc-dashboard-live.html    # Single-page dashboard frontend (Chart.js, vanilla JS)

@@ -39,6 +39,7 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 - `SecurityIncident.Read.All` is needed for Graph Security incidents API.
 - `ThreatIntelligence.Read.All` requires a Defender TI license in the tenant.
 - Token responses include `expires_in` (seconds) but no caching is implemented — every page load re-authenticates.
+- **Graph incident comments have a 1000-character limit.** `graph_post_comment()` enforces `[:1000]` but callers should also pre-truncate to avoid cutting mid-word. AI Analysis truncates to 960 chars, Copilot Enrichment to 700 chars summary + 80 chars per action.
 - **User auth uses authorization code flow** (`/common` authority, multi-tenant). The `@require_login` decorator redirects browsers to `/login` and returns 401 for API calls.
 - **Admin check uses app roles** — the role name is configurable via `ADMIN_ROLE_NAME` (default `Admin`). Roles must be defined in the Entra app registration manifest.
 - **Redirect URI** must be registered in Entra: `https://<domain>/auth/callback`. Missing this causes AADSTS50011 errors.
@@ -49,6 +50,7 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 - Config priority: DB (encrypted) → environment variable → default/None.
 - The `CONFIGURABLE_KEYS` list gates which keys can be set via the settings API. Add new keys there when extending.
 - `SECRET_KEYS` frozenset determines which values get Fernet encryption in the DB.
+- **The `ALLOWED` set in the `/api/settings` PUT endpoint** gates which keys can be saved. If you add a new feature toggle or config key, you must also add it to the `ALLOWED` set in `dashboard_backend.py` — otherwise the settings save will silently drop the key.
 
 ### Frontend
 - `soc-dashboard-live.html` loads Chart.js from CDN (`cdn.jsdelivr.net`) — if the CDN is blocked or down (e.g., restricted network), charts won't render. Bundle Chart.js locally as fallback.
@@ -56,9 +58,15 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 
 ### Deployment
 - **gunicorn required for production**: Flask's dev server is single-threaded and not suitable for production. Always use gunicorn via systemd service.
+- **`--capture-output` required in gunicorn ExecStart** — without this flag, `app.logger` output goes nowhere. Already set in the systemd service.
+- **Flask logger must be wired to gunicorn** — add `app.logger.handlers = gunicorn_logger.handlers` at startup. Without this, `app.logger.info()` calls are silently dropped even with `--capture-output`.
 - **`.env` file permissions**: Must be `chmod 600` and owned by the service user. `deploy_lxc.sh` sets this, but manual edits can reset permissions.
 - **`deploy_lxc.sh` auto-generates self-signed TLS** when no Let's Encrypt cert is present. It also merges new `.env.example` keys into existing `.env` on re-deploy (never overwrites existing values).
 - If using a reverse proxy with proxy protocol, direct connections (bypassing the proxy) will cause connection resets — always access through the proxy or DNS.
+- **NEVER run `certbot --nginx`** when behind an upstream proxy_protocol proxy. `certbot --nginx` rewrites `listen` directives and strips `proxy_protocol`, causing `ERR_SSL_PROTOCOL_ERROR`. Use `certbot certonly --webroot -w /var/www/html -d <domain>` instead and let the existing nginx config reference the cert.
+- **NEVER overwrite an existing nginx config that has `listen 443 ssl proxy_protocol`** — `deploy_lxc.sh` checks for this and preserves it. If you must regenerate, ensure proxy_protocol is re-added.
+- **`UPSTREAM_PROXY_IP`** in `.env` tells the deploy script to add `proxy_protocol` + `set_real_ip_from` to generated nginx configs. Without it, the generated config assumes direct TLS (no proxy protocol).
+- **Symptoms of missing proxy_protocol**: `ERR_SSL_PROTOCOL_ERROR` or `ERR_CONNECTION_CLOSED` when accessing via the SNI proxy, but `curl http://127.0.0.1:5000` works fine locally.
 - See `.github/copilot-instructions.local.md` (gitignored) for environment-specific deployment details.
 
 ## Code Conventions
@@ -79,6 +87,7 @@ Defender XDR, and third-party threat intel APIs. SQLite backend, single-page HTM
 | `auth.py` | Entra ID login flow + decorators | Changing auth logic, adding scopes, modifying session data |
 | `config_manager.py` | Encrypted config CRUD (DB→env fallback) | Adding new configurable keys, changing encryption |
 | `ai_assistant.py` | AI Foundry integration (agent + direct fallback) | Changing AI prompts, MCP tool config, fallback logic |
+| `security_copilot.py` | Security Copilot enrichment orchestration | Changing enrichment prompts, caching logic, webhook processing |
 | `sentinel_kql.py` | KQL query engine (Log Analytics REST API) | Changing query safety limits, token caching, error handling |
 | `append_data.py` | Incremental DB loader | Changing refresh logic |
 | `hourly_refresh.py` | Scheduler with configurable interval | Changing refresh interval, timeout settings |

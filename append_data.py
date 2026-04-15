@@ -43,13 +43,28 @@ def fetch_and_append_new_data():
     print(f"   ✅ Found {len(new_incidents)} new incidents to add")
     
     # Insert new incidents
+    new_incident_ids = []
     if new_incidents:
         print("\n3️⃣  Inserting new incidents into database...")
         success_count = 0
         for incident in new_incidents:
             if insert_incident(incident):
                 success_count += 1
+                new_incident_ids.append(str(incident.get('id', '')))
         print(f"   ✅ Successfully inserted {success_count}/{len(new_incidents)} incidents")
+
+    # Auto-enrich new incidents via Security Copilot (if enabled)
+    if new_incident_ids:
+        try:
+            from config_manager import get_config
+            copilot_on = (get_config('SECURITY_COPILOT_ENABLED') or '').lower() in ('true', '1', 'yes', 'on')
+            auto_on = (get_config('COPILOT_AUTO_ENRICH_ENABLED') or '').lower() in ('true', '1', 'yes', 'on')
+            if copilot_on and auto_on:
+                print("\n🤖 Auto-enriching new incidents via Security Copilot...")
+                from security_copilot import auto_enrich_new_incidents
+                auto_enrich_new_incidents(new_incident_ids)
+        except Exception as e:
+            print(f"⚠️  Auto-enrichment skipped due to error: {e}")
     
     # Fetch and append alerts
     print("\n4️⃣  Fetching alerts for incidents...")

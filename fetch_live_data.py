@@ -105,7 +105,7 @@ def graph_patch_incident(incident_id: str, payload: dict) -> dict:
 
 
 def graph_post_comment(incident_id: str, comment_text: str) -> dict:
-    """Post a comment on a Graph Security incident."""
+    """Post a comment on a Graph Security incident (max 1000 chars)."""
     if not str(incident_id).isdigit():
         raise ValueError('incident_id must be numeric (Graph)')
     token = get_graph_access_token()
@@ -113,7 +113,7 @@ def graph_post_comment(incident_id: str, comment_text: str) -> dict:
         raise RuntimeError('Could not obtain Graph token')
     url = f'{GRAPH_API_BASE}/security/incidents/{incident_id}/comments'
     body = {'@odata.type': 'microsoft.graph.security.alertComment',
-            'comment': comment_text}
+            'comment': comment_text[:1000]}
     resp = requests.post(url, json=body,
                          headers={'Authorization': f'Bearer {token}',
                                   'Content-Type': 'application/json'},
@@ -591,112 +591,6 @@ def fetch_defender_incidents_sentinel() -> list | None:
         return None
 
 
-def _generate_demo_incidents() -> list:
-    """Generate demo incidents as last-resort fallback."""
-    import random
-
-    templates = [
-        {"severity": "Low", "status": "New", "type": "DLP"},
-        {"severity": "High", "status": "Active", "type": "Multi-stage"},
-        {"severity": "Medium", "status": "Closed", "type": "AnonymousIP"},
-        {"severity": "High", "status": "Active", "type": "PasswordSpray"},
-        {"severity": "Medium", "status": "New", "type": "Discovery"},
-        {"severity": "Low", "status": "Active", "type": "RemoteConnection"},
-        {"severity": "Medium", "status": "Closed", "type": "Hacktool"},
-        {"severity": "High", "status": "New", "type": "SuspiciousSignIn"},
-    ]
-
-    # Realistic entity pools for demo data
-    _demo_ips = [
-        '185.220.101.34', '45.155.205.233', '91.240.118.172', '194.165.16.77',
-        '23.106.215.64', '103.253.41.98', '5.188.206.14', '162.247.74.27',
-        '198.98.56.149', '209.141.45.189', '80.82.77.139', '141.98.11.105',
-    ]
-    _demo_domains = [
-        'login-microsoftonline.tk', 'secure-update365.xyz', 'auth-verify.net',
-        'payload-delivery.ru', 'c2-callback.cn', 'exfil-data.top',
-    ]
-    _demo_urls = [
-        'https://login-microsoftonline.tk/oauth2/token',
-        'https://secure-update365.xyz/update.exe',
-        'http://payload-delivery.ru/stage2.ps1',
-    ]
-    _demo_files = [
-        'invoice_7291.exe', 'update_patch.dll', 'report_final.scr',
-        'readme.hta', 'meeting_notes.js',
-    ]
-    # Realistic-looking fake sha256 hashes for demo file entities
-    _demo_sha256 = [
-        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        'a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a',
-        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
-        'd7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592',
-        '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-    ]
-    _demo_verdicts = ['malicious', 'suspicious', 'suspicious', 'unknown']
-
-    incidents = []
-    for i in range(100):
-        t = templates[i % len(templates)]
-        iid = 14021 + i
-        days_ago = i // 4
-        ts = datetime.now() - timedelta(days=days_ago, hours=random.randint(0, 23))
-
-        # Build realistic entities: always a user, plus IOC-type entities
-        entities = [{'type': 'user', 'name': f'user{iid}@contoso.com', 'verdict': 'suspicious'}]
-
-        # Add IP entity for most incidents
-        if i % 3 != 2:
-            entities.append({
-                'type': 'ip',
-                'name': random.choice(_demo_ips),
-                'verdict': random.choice(_demo_verdicts),
-            })
-        # Add domain entity for some incidents
-        if i % 4 == 0:
-            entities.append({
-                'type': 'mailbox',
-                'name': f'user{iid}@{random.choice(_demo_domains)}',
-                'verdict': random.choice(_demo_verdicts),
-            })
-        # Add URL entity for phishing/email incidents
-        if t['type'] in ('DLP', 'Multi-stage', 'AnonymousIP'):
-            entities.append({
-                'type': 'url',
-                'name': random.choice(_demo_urls),
-                'verdict': random.choice(_demo_verdicts),
-            })
-        # Add file entity for hacktool/multi-stage incidents
-        if t['type'] in ('Hacktool', 'Multi-stage', 'Discovery'):
-            fname = random.choice(_demo_files)
-            fidx = _demo_files.index(fname)
-            entities.append({
-                'type': 'file',
-                'name': fname,
-                'verdict': random.choice(_demo_verdicts),
-                'sha256': _demo_sha256[fidx],
-            })
-
-        incidents.append({
-            'id': str(iid),
-            'title': f"{t['type']} incident #{iid}",
-            'severity': t['severity'],
-            'status': t['status'],
-            'createdTime': ts.isoformat() + 'Z',
-            'lastUpdateTime': ts.isoformat() + 'Z',
-            'classification': 'unknown',
-            'determination': 'unknown',
-            'assignedTo': 'Unassigned',
-            'alertCount': random.randint(1, 5),
-            'entities': entities,
-            'entityCount': len(entities),
-            'mitreTechniques': [],
-            'recommendations': ['Investigate alert details'],
-            'webUrl': f'https://security.microsoft.com/incident2/{iid}/overview',
-        })
-    return incidents
-
-
 def get_last_incident_source() -> str:
     """Return the data source used in the most recent fetch_defender_incidents() call."""
     return _last_incident_source
@@ -704,10 +598,10 @@ def get_last_incident_source() -> str:
 
 def fetch_defender_incidents() -> list:
     """
-    Fetch incidents with three-tier fallback:
+    Fetch incidents with two-tier fallback:
     1. Microsoft Graph Security API (live)
     2. Sentinel Log Analytics KQL (live)
-    3. Demo data (offline)
+    Returns empty list when no API credentials are available.
     """
     global _last_incident_source
     print("Fetching Defender incidents...")
@@ -724,10 +618,10 @@ def fetch_defender_incidents() -> list:
         _last_incident_source = 'sentinel_kql'
         return result
 
-    # Tier 3: Demo data
-    print("  📊 Using demo incident data (no API credentials available)")
-    _last_incident_source = 'demo'
-    return _generate_demo_incidents()
+    # No data available
+    print("  ⚠️  No API credentials configured — returning empty incident list")
+    _last_incident_source = 'none'
+    return []
 
 
 def fetch_defender_alerts_list(incidents) -> list:
@@ -844,134 +738,52 @@ def fetch_defender_alerts_list(incidents) -> list:
             except Exception as e:
                 print(f"  ⚠️  Sentinel alert query error: {e}")
 
-    # Demo fallback — generate synthetic alerts
-    import random
-    alerts = []
-    aid = 1000
-    for inc in incidents:
-        n = inc.get('alertCount', 1) or 1
-        inc_time = datetime.fromisoformat(inc['createdTime'].replace('Z', ''))
-        for _ in range(n):
-            t = inc_time - timedelta(minutes=random.randint(0, 120))
-            alerts.append({
-                'id': str(aid),
-                'incidentId': inc['id'],
-                'title': f"Alert for {inc['title'][:40]}",
-                'severity': inc['severity'],
-                'category': 'SuspiciousActivity',
-                'product': 'Microsoft Defender XDR',
-                'timestamp': t.isoformat() + 'Z',
-                'status': random.choice(['New', 'InProgress', 'Resolved']),
-                'detectionSource': 'Demo',
-            })
-            aid += 1
-    print(f"  ✅ Generated {len(alerts)} demo alerts")
-    return alerts
+    # No alert data available from any source
+    print("  ⚠️  No alert data available")
+    return []
 
 def calculate_daily_alert_volume(alerts):
     """
-    Calculate daily alert volume from real alert data
+    Calculate daily alert volume from real alert timestamps.
+    Returns 30 days of date/count pairs.
     """
     print("Calculating daily alert volume...")
-    
-    today = datetime.now()
-    volume_data = []
-    
-    # Generate 30 days of data based on actual alerts
+
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Initialise 30-day window with zero counts
+    day_counts: dict[str, int] = {}
     for i in range(29, -1, -1):
-        date = today - timedelta(days=i)
-        # Distribute alerts across days (would be calculated from real timestamps)
-        if i < 10:
-            count = 3 if i % 2 == 0 else 2
-        elif i < 20:
-            count = 2 if i % 3 == 0 else 1
-        else:
-            count = 1 if i % 4 == 0 else 0
-        
-        volume_data.append({
-            'date': date.strftime('%Y-%m-%d'),
-            'count': count
-        })
-    
-    print(f"  ✅ Generated {len(volume_data)} days of alert volume")
+        d = today - timedelta(days=i)
+        day_counts[d.strftime('%Y-%m-%d')] = 0
+
+    # Tally alerts into day buckets
+    for alert in alerts:
+        ts_str = alert.get('timestamp') or alert.get('createdTime') or ''
+        if not ts_str:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_str.replace('Z', ''))
+            key = ts.strftime('%Y-%m-%d')
+            if key in day_counts:
+                day_counts[key] += 1
+        except (ValueError, TypeError):
+            continue
+
+    volume_data = [{'date': d, 'count': c} for d, c in day_counts.items()]
+    total = sum(c for c in day_counts.values())
+    print(f"  ✅ Calculated alert volume for {len(volume_data)} days ({total} alerts)")
     return volume_data
 
-def fetch_sentinel_incidents():
-    """
-    Fetch incidents from Microsoft Sentinel using KQL query
-    """
-    print("Fetching Sentinel incidents...")
-    
-    # KQL query to get incidents from last 30 days
-    kql_query = """
-    SecurityIncident
-    | where TimeGenerated > ago(30d)
-    | extend
-        IncidentId = tostring(IncidentNumber),
-        IncidentTitle = Title,
-        IncidentSeverity = Severity,
-        IncidentStatus = Status,
-        DetectedTime = FirstActivityTime,
-        LastActivity = LastActivityTime,
-        AssignedTo = tostring(Owner.assignedTo),
-        AlertCount = AlertsCount,
-        Category = Classification
-    | project 
-        IncidentId,
-        IncidentTitle,
-        IncidentSeverity,
-        IncidentStatus,
-        DetectedTime,
-        LastActivity,
-        AssignedTo,
-        AlertCount,
-        Category,
-        Description,
-        ProviderName
-    | order by DetectedTime desc
-    | take 100
-    """
-    
-    return {
-        'query': kql_query,
-        'workspaceId': _workspace_id(),
-        'workspaceName': _workspace_name(),
-        'results': []
-    }
 
-def fetch_defender_alerts():
-    """
-    Fetch alerts from Microsoft Defender for Endpoint
-    """
-    print("Fetching Defender alerts...")
-    
-    thirty_days_ago = datetime.now() - timedelta(days=30)
-    
-    # In production, this would call:
-    # alerts = mcp_triage_mcp_se_ListAlerts(
-    #     createdAfter=thirty_days_ago.isoformat(),
-    #     top=100
-    # )
-    
-    return {
-        'createdAfter': thirty_days_ago.isoformat(),
-        'results': []  # Would contain actual alerts
-    }
-
-def _build_demo_secure_score(source_label: str = 'demo') -> dict:
-    """Return realistic demo Secure Score data matching M365 structure."""
+def _empty_secure_score(source_label: str = 'unavailable') -> dict:
+    """Return an empty Secure Score structure when no API data is available."""
     return {
         'source': source_label,
-        'currentScore': 847.87,
-        'maxScore': 1528,
-        'percentage': 55.5,
+        'currentScore': 0,
+        'maxScore': 0,
+        'percentage': 0,
         'controlScores': [],
-        'categoryScores': [
-            {'name': 'Identity', 'current': 233.7, 'max': 339.0, 'percentage': 68.9, 'controlCount': 67},
-            {'name': 'Data', 'current': 8.0, 'max': 9.0, 'percentage': 88.9, 'controlCount': 4},
-            {'name': 'Device', 'current': 484.1, 'max': 940.0, 'percentage': 51.5, 'controlCount': 128},
-            {'name': 'Apps', 'current': 122.0, 'max': 240.0, 'percentage': 50.8, 'controlCount': 62},
-        ],
+        'categoryScores': [],
         'recommendations': [],
         'recommendationsByCategory': {},
         'recentImprovements': [],
@@ -1033,8 +845,8 @@ def fetch_secure_score():
     token = get_graph_access_token()
 
     if not token:
-        print("  📊 Using demo Secure Score (API credentials not available)")
-        return _build_demo_secure_score('demo')
+        print("  ⚠️  Secure Score unavailable (no API credentials)")
+        return _empty_secure_score('unavailable')
 
     try:
         headers = {
@@ -1301,9 +1113,9 @@ def fetch_secure_score():
     except Exception as e:
         print(f"  ⚠️  Error: {e}")
 
-    # Fallback to demo data
-    print("  📊 Using demo Secure Score (API call failed)")
-    return _build_demo_secure_score('demo_fallback')
+    # Fallback — no data available
+    print("  ⚠️  Secure Score unavailable (API call failed)")
+    return _empty_secure_score('unavailable')
 
 def fetch_daily_alert_trends():
     """
@@ -2141,10 +1953,10 @@ def generate_dashboard_data():
     data = {
         'timestamp': datetime.now().isoformat(),
         'secureScore': {
-            'current': secure_score_data.get('percentage', 78.4),
+            'current': secure_score_data.get('percentage', 0),
             'max': 100,
-            'trend': 5.2,
-            'isDemo': secure_score_data.get('source') != 'microsoft_graph_api',
+            'trend': secure_score_data.get('trend', 0),
+            'isDemo': secure_score_data.get('source') not in ('microsoft_graph_api',),
             'rawScore': secure_score_data.get('currentScore'),
             'maxPossible': secure_score_data.get('maxScore'),
             'controlScores': secure_score_data.get('controlScores', []),

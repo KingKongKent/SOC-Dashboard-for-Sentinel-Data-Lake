@@ -2,7 +2,7 @@
 
 Discovered vulnerabilities, patches applied, and status.
 
-> Last updated: 2025-07-21
+> Last updated: 2026-04-15
 
 ## Summary
 
@@ -19,6 +19,9 @@ Discovered vulnerabilities, patches applied, and status.
 | 9 | **HIGH** | dashboard_backend.py | No authentication — anyone on the network can access all SOC data | **PATCHED** |
 | 10 | **MEDIUM** | fetch_live_data.py | Credentials stored in plaintext .env only — no encrypted storage option | **PATCHED** |
 | 11 | **MEDIUM** | fetch_live_data.py | `Mail.Send` as application permission — tenant-wide send-as-any-user | **PATCHED** |
+| 12 | **LOW** | dashboard_backend.py | Graph comment exceeds 1000-char limit — silent 400 rejection | **PATCHED** |
+| 13 | **INFO** | dashboard_backend.py | Flask logger not wired to gunicorn — app.logger output silently lost | **PATCHED** |
+| 14 | **LOW** | dashboard_backend.py | Settings ALLOWED set missing new config keys — silent data loss on save | **PATCHED** |
 
 ---
 
@@ -143,3 +146,40 @@ Sessions stored server-side via Flask-Session (filesystem) with 8-hour lifetime 
 **Fix:** Added `config_manager.py` with Fernet (AES-128-CBC) encryption. Secrets stored in the
 SQLite `config` table are encrypted at rest using an auto-generated key at `CONFIG_KEY_PATH`.
 The `.env` file remains as a fallback for bootstrap credentials.
+
+### 12. Graph comment exceeds 1000-char limit (LOW)
+
+**Risk:** The Graph Security API enforces a 1000-character maximum per incident comment.
+AI Analysis and Security Copilot enrichment summaries exceeded this limit (up to ~1700 chars),
+causing a `400 Bad Request` error. The comment was silently not posted; no error was visible
+because Flask's logger was not wired to gunicorn (see #13).
+**Fix:**
+- `graph_post_comment()` in `fetch_live_data.py` now auto-truncates to `[:1000]` as a safety net.
+- AI Analysis comment: analysis truncated to 960 chars, final `[:1000]` applied.
+- Copilot Enrichment comment: summary truncated to 700 chars, actions to 80 chars each × 5 max,
+  final `[:1000]` applied.
+
+### 13. Flask logger not wired to gunicorn (INFO)
+
+**Risk:** `app.logger.info()` and `app.logger.warning()` calls produced no output in gunicorn's
+error log. This made debugging production issues impossible — errors from comment posting,
+enrichment, and authentication were invisible even with `--capture-output` on gunicorn.
+**Fix:** Added at startup in `dashboard_backend.py`:
+```python
+_gunicorn_logger = logging.getLogger('gunicorn.error')
+if _gunicorn_logger.handlers:
+    app.logger.handlers = _gunicorn_logger.handlers
+    app.logger.setLevel(_gunicorn_logger.level)
+```
+All `app.logger` output now appears in `/var/log/soc-dashboard/error.log`.
+
+### 14. Settings ALLOWED set missing new config keys (LOW)
+
+**Risk:** The `ALLOWED` set in the `/api/settings` PUT endpoint gates which config keys can be
+saved. When Security Copilot feature toggles were added (`SECURITY_COPILOT_ENABLED`,
+`COPILOT_AUTO_ENRICH_ENABLED`, `COPILOT_AUTO_ENRICH_MAX_PER_CYCLE`, `COPILOT_WEBHOOK_SECRET`),
+they were not added to the `ALLOWED` set. Settings saves silently dropped these keys — the admin
+UI showed the toggles as enabled, but after page refresh they reverted to disabled because the
+values were never persisted.
+**Fix:** Added all four Copilot keys to the `ALLOWED` set. This is a recurring pattern —
+**always update `ALLOWED` when adding new settings keys**.

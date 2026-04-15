@@ -34,6 +34,7 @@ graph TB
         AI["ai_assistant.py<br/>(Foundry agent + MCP)"]
         KQL["sentinel_kql.py<br/>(Log Analytics REST)"]
         IOC["ioc_upload.py<br/>(Sentinel TI API)"]
+        COPILOT["security_copilot.py<br/>(enrichment orchestration)"]
     end
 
     subgraph "External APIs"
@@ -54,6 +55,8 @@ graph TB
     BACKEND --> AI
     BACKEND --> KQL
     BACKEND --> IOC
+    BACKEND --> COPILOT
+    COPILOT --> AI
 
     HOURLY -->|"every 1 h"| APPEND
     APPEND --> DBMOD
@@ -167,17 +170,48 @@ All credentials and settings are managed through `config_manager.py` with two-ti
 | `config` | App configuration & encrypted secrets | key (PK), value, is_encrypted, updated_at |
 | `attack_stories` | Cached AI-generated incident analyses | incident_id (PK), story (TEXT), model, created_at |
 | `cases` | Analyst-created investigation cases | id (PK), incident_id, title, notes, status, created_by, created_at |
+| `incident_enrichments` | Security Copilot enrichment results | id (AI PK), incident_id (FK), source, risk_score, summary, recommended_actions (JSON), entity_reputations (JSON), copilot_session_id, model, created_at |
 
 ### Indexes
 - `idx_incidents_created` — fast date range queries
 - `idx_incidents_severity` / `idx_incidents_status` — filter queries
 - `idx_alerts_incident` / `idx_alerts_timestamp` — join + range
 - `idx_entities_incident` / `idx_entities_type` — entity lookups
+- `idx_enrichments_incident` / `idx_enrichments_created` — enrichment lookups
+
+## Incident Actions & Comment Posting
+
+The dashboard can write back to Defender XDR via the Graph Security API:
+
+| Action | Graph Endpoint | Notes |
+|--------|----------------|-------|
+| Assign | `PATCH /security/incidents/{id}` | Sets `assignedTo` field |
+| Escalate | `PATCH /security/incidents/{id}` | Bumps severity + adds `Escalated` tag |
+| Close | `PATCH /security/incidents/{id}` | Sets `status=resolved` + classification |
+| Comment | `POST /security/incidents/{id}/comments` | **Max 1000 chars** — truncated automatically |
+
+**Graph comment limit:** The Graph Security API enforces a **1000-character maximum** per comment.
+`graph_post_comment()` in `fetch_live_data.py` truncates to 1000 chars as a safety net.
+AI Analysis and Copilot Enrichment comments are pre-truncated (summary ≤960/700 chars respectively)
+before posting.
+
+## Logging
+
+Flask's `app.logger` is wired to gunicorn's error handler at startup:
+```python
+_gunicorn_logger = logging.getLogger('gunicorn.error')
+if _gunicorn_logger.handlers:
+    app.logger.handlers = _gunicorn_logger.handlers
+    app.logger.setLevel(_gunicorn_logger.level)
+```
+Without this, `app.logger.info()` and `app.logger.warning()` calls are invisible
+under gunicorn because Flask's default logger has no handler attached.
+All application-level logs appear in `/var/log/soc-dashboard/error.log`.
 
 ## Technology Stack
 
 | Layer | Technology |
-|-------|-----------|
+|-------|------------|
 | Frontend | Vanilla HTML/CSS/JS, Chart.js 4.4 |
 | Backend | Python 3, Flask 3.1, Flask-CORS, Flask-Session |
 | Database | SQLite 3 (file-based) |
@@ -187,6 +221,7 @@ All credentials and settings are managed through `config_manager.py` with two-ti
 | HTTP | requests 2.32 |
 | Scheduler | schedule 1.2 / systemd timer (production) |
 | AI | Azure AI Foundry (OpenAI), azure-identity, Sentinel MCP tools |
+| Enrichment | Security Copilot (via Foundry agent), AI Analysis (direct) |
 | KQL | Log Analytics REST API (ad-hoc queries from frontend) |
 | Config | python-dotenv 1.0 |
 | WSGI | gunicorn (production) |
@@ -261,7 +296,13 @@ graph LR
 ## Deployment Notes
 
 - **Production deployment** uses gunicorn behind nginx with TLS
-- **Proxy protocol** — if using an upstream SNI proxy, uncomment the proxy_protocol lines in `nginx_site.conf`. Direct connections to the LXC will fail without the expected preamble.
+- **Proxy protocol** — `nginx_site.conf` includes `proxy_protocol` on `listen 443` by default (for upstream SNI proxy). If deploying **without** a proxy, remove `proxy_protocol` from listen directives and delete the `set_real_ip_from` / `real_ip_header` lines.
+- **`UPSTREAM_PROXY_IP`** — set this in `.env` to your SNI proxy's IP (e.g. `10.0.0.1`). `deploy_lxc.sh` uses it to auto-configure `proxy_protocol` + `set_real_ip_from`. Omitting it generates a direct-TLS config.
+- **NEVER run `certbot --nginx`** behind a proxy_protocol proxy — it rewrites listen directives and removes `proxy_protocol`, causing `ERR_SSL_PROTOCOL_ERROR`. Use `certbot certonly --webroot` instead.
+- **deploy_lxc.sh preserves existing nginx HTTPS config** — if `listen 443 ssl` already exists in the config file, it will not be overwritten. This prevents accidental TLS breakage on re-deploy.
+- **gunicorn `--capture-output`** — required in the systemd ExecStart line for `app.logger` output to reach the error log file. Without it, only gunicorn lifecycle messages appear.
+- **Flask logger wiring** — `app.logger` must be wired to `gunicorn.error` handlers at startup (see Logging section above). Without this, `app.logger.info()` calls silently go nowhere.
+- **Graph comment limit** — The Graph Security API enforces a 1000-character limit per comment. `graph_post_comment()` auto-truncates but callers should also pre-truncate to avoid cutting mid-sentence.
 - **SQLite limits** — append-only model; gunicorn workers + hourly timer can cause `database is locked` under load. Consider WAL mode.
 - **Credentials** — all via `.env` file (chmod 600); never in source control
 - **Dashboard authentication** — Entra ID login required (OAuth2 authorization code flow, multi-tenant)

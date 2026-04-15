@@ -209,6 +209,23 @@ def init_database():
         )
     ''')
 
+    # Incident enrichments (Security Copilot / Foundry AI analysis cache)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS incident_enrichments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            incident_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            risk_score INTEGER,
+            summary TEXT,
+            recommended_actions TEXT,
+            entity_reputations TEXT,
+            copilot_session_id TEXT,
+            model TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (incident_id) REFERENCES incidents(id)
+        )
+    ''')
+
     # Auto-seed from legacy config if table is empty
     _seed_workspace_from_config(cursor)
 
@@ -223,6 +240,8 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_case_incidents_case ON case_incidents(case_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_case_incidents_incident ON case_incidents(incident_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_uploaded_iocs_type ON uploaded_iocs(ioc_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_enrichments_incident ON incident_enrichments(incident_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_enrichments_created ON incident_enrichments(created_at)')
     
     conn.commit()
     conn.close()
@@ -566,15 +585,15 @@ def get_metrics_summary(days: int = 30) -> Dict[str, Any]:
     conn.close()
     
     return {
-        'total': row['total'],
-        'high': row['high'],
-        'medium': row['medium'],
-        'low': row['low'],
-        'informational': row['informational'],
-        'resolved': row['resolved'],
-        'active': row['active'] + row['new'],
-        'new': row['new'],
-        'inProgress': row['active'],
+        'total': row['total'] or 0,
+        'high': row['high'] or 0,
+        'medium': row['medium'] or 0,
+        'low': row['low'] or 0,
+        'informational': row['informational'] or 0,
+        'resolved': row['resolved'] or 0,
+        'active': (row['active'] or 0) + (row['new'] or 0),
+        'new': row['new'] or 0,
+        'inProgress': row['active'] or 0,
     }
 
 def save_threat_intel_snapshot(source: str, data: Dict[str, Any]):
@@ -639,6 +658,107 @@ def get_database_stats() -> Dict[str, Any]:
         'oldest_incident': date_range['oldest'],
         'newest_incident': date_range['newest']
     }
+
+
+# ─── Incident Enrichments (Security Copilot) ─────────────────────────────────
+
+def insert_enrichment(incident_id: str, source: str, risk_score: Optional[int],
+                      summary: Optional[str], recommended_actions: Optional[List[str]],
+                      entity_reputations: Optional[List[Dict]], session_id: Optional[str] = None,
+                      model: Optional[str] = None) -> bool:
+    """Insert an enrichment record for an incident."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            '''INSERT INTO incident_enrichments
+               (incident_id, source, risk_score, summary, recommended_actions,
+                entity_reputations, copilot_session_id, model)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (incident_id, source, risk_score, summary,
+             json.dumps(recommended_actions) if recommended_actions else None,
+             json.dumps(entity_reputations) if entity_reputations else None,
+             session_id, model)
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"❌ Error inserting enrichment for {incident_id}: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+def get_enrichment(incident_id: str) -> Optional[Dict[str, Any]]:
+    """Return the latest enrichment for an incident, or None."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            '''SELECT * FROM incident_enrichments
+               WHERE incident_id = ?
+               ORDER BY created_at DESC LIMIT 1''',
+            (incident_id,)
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        if result.get('recommended_actions'):
+            result['recommended_actions'] = json.loads(result['recommended_actions'])
+        if result.get('entity_reputations'):
+            result['entity_reputations'] = json.loads(result['entity_reputations'])
+        return result
+    finally:
+        conn.close()
+
+
+def get_enrichments_batch(incident_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Return the latest enrichment per incident for a batch of IDs.
+    Returns {incident_id: enrichment_dict}."""
+    if not incident_ids:
+        return {}
+    conn = get_connection()
+    try:
+        placeholders = ','.join('?' for _ in incident_ids)
+        rows = conn.execute(
+            f'''SELECT e.* FROM incident_enrichments e
+                INNER JOIN (
+                    SELECT incident_id, MAX(created_at) AS max_created
+                    FROM incident_enrichments
+                    WHERE incident_id IN ({placeholders})
+                    GROUP BY incident_id
+                ) latest ON e.incident_id = latest.incident_id
+                           AND e.created_at = latest.max_created''',
+            incident_ids
+        ).fetchall()
+        result = {}
+        for row in rows:
+            d = dict(row)
+            if d.get('recommended_actions'):
+                d['recommended_actions'] = json.loads(d['recommended_actions'])
+            if d.get('entity_reputations'):
+                d['entity_reputations'] = json.loads(d['entity_reputations'])
+            result[d['incident_id']] = d
+        return result
+    finally:
+        conn.close()
+
+
+def get_enrichment_stats() -> Dict[str, Any]:
+    """Return enrichment coverage statistics."""
+    conn = get_connection()
+    try:
+        total = conn.execute('SELECT COUNT(DISTINCT incident_id) AS cnt FROM incident_enrichments').fetchone()['cnt']
+        incidents = conn.execute('SELECT COUNT(*) AS cnt FROM incidents').fetchone()['cnt']
+        avg_row = conn.execute('SELECT AVG(risk_score) AS avg_score FROM incident_enrichments WHERE risk_score IS NOT NULL').fetchone()
+        return {
+            'enriched_count': total,
+            'total_incidents': incidents,
+            'coverage_pct': round(total / incidents * 100, 1) if incidents else 0,
+            'avg_risk_score': round(avg_row['avg_score'], 1) if avg_row['avg_score'] else None,
+        }
+    finally:
+        conn.close()
+
 
 # ─── Cases CRUD ───────────────────────────────────────────────────────────────
 

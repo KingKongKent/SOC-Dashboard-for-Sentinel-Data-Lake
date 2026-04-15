@@ -36,7 +36,7 @@ VULN_PATTERNS = [
     (r'/home/[A-Za-z0-9._-]+/', "Local Linux home path — do not commit machine-specific paths"),
 ]
 
-SKIP_DIRS = {'.git', 'node_modules', '__pycache__', 'venv', 'env', '.venv'}
+SKIP_DIRS = {'.git', 'node_modules', '__pycache__', 'venv', 'env', '.venv', 'static', '_archive'}
 SKIP_FILES = {'pre_commit_check.py'}  # Don't scan ourselves — our patterns are not vulnerabilities
 SCAN_EXTENSIONS = {'.py', '.js', '.ts', '.html', '.yml', '.yaml', '.json', '.toml', '.cfg', '.ini'}
 
@@ -99,6 +99,8 @@ def main():
         if not filepath.exists() or filepath.suffix not in SCAN_EXTENSIONS:
             continue
         if filepath.name in SKIP_FILES:
+            continue
+        if any(skip in filepath.relative_to(REPO_ROOT).parts for skip in SKIP_DIRS):
             continue
 
         # Secret scan

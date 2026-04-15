@@ -22,6 +22,7 @@ try:
         create_case, get_cases, get_case, update_case, delete_case,
         save_attack_story, get_attack_story,
         get_workspaces, add_workspace, remove_workspace, set_default_workspace,
+        insert_enrichment, get_enrichment, get_enrichments_batch, get_enrichment_stats,
     )
     from fetch_live_data import (
         fetch_secure_score, calculate_daily_alert_volume, get_last_incident_source,
@@ -40,7 +41,7 @@ def _detect_incident_source(incidents: list) -> str:
     """Detect data source from incident characteristics.
     Graph incidents have numeric IDs; Sentinel have GUIDs; demo have 'INC-' prefix."""
     if not incidents:
-        return 'unknown'
+        return 'none'
     sample_id = str(incidents[0].get('id', ''))
     if sample_id.isdigit():
         return 'microsoft_graph_api'
@@ -74,6 +75,13 @@ def _needs_setup() -> bool:
     return False
 
 app = Flask(__name__)
+
+# Wire Flask logger to gunicorn's logger when running under gunicorn
+import logging as _logging
+_gunicorn_logger = _logging.getLogger('gunicorn.error')
+if _gunicorn_logger.handlers:
+    app.logger.handlers = _gunicorn_logger.handlers
+    app.logger.setLevel(_gunicorn_logger.level)
 
 # Session config
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(32))
@@ -239,6 +247,10 @@ def update_settings():
         'CLOSE_INCIDENT_ENABLED',
         'LOGS_ENABLED',
         'IOC_UPLOAD_ENABLED',
+        'SECURITY_COPILOT_ENABLED',
+        'COPILOT_AUTO_ENRICH_ENABLED',
+        'COPILOT_AUTO_ENRICH_MAX_PER_CYCLE',
+        'COPILOT_WEBHOOK_SECRET',
     }
     updated = []
     for key, value in payload.items():
@@ -385,10 +397,10 @@ def get_dashboard_data_from_db():
                 'status': status
             },
             'secureScore': {
-                'current': secure_score_data.get('percentage', 55.5),
+                'current': secure_score_data.get('percentage', 0),
                 'max': 100,
                 'trend': secure_score_data.get('trend', 0),
-                'isDemo': secure_score_data.get('source') != 'microsoft_graph_api',
+                'isDemo': secure_score_data.get('source') not in ('microsoft_graph_api',),
                 'rawScore': secure_score_data.get('currentScore'),
                 'maxPossible': secure_score_data.get('maxScore'),
                 'controlScores': secure_score_data.get('controlScores', []),
@@ -400,6 +412,7 @@ def get_dashboard_data_from_db():
                 'history': secure_score_data.get('history', []),
             },
             'incidents': incidents,
+            'enrichments': _get_enrichment_previews(incident_ids),
             'alerts': alerts,
             'metrics': metrics,
             'incidentSource': _detect_incident_source(incidents),
@@ -782,6 +795,8 @@ def get_features():
         'close_incident': _feature_enabled('CLOSE_INCIDENT_ENABLED'),
         'logs_enabled': _feature_enabled('LOGS_ENABLED'),
         'ioc_upload': _feature_enabled('IOC_UPLOAD_ENABLED'),
+        'security_copilot': _feature_enabled('SECURITY_COPILOT_ENABLED'),
+        'copilot_auto_enrich': _feature_enabled('COPILOT_AUTO_ENRICH_ENABLED'),
         'incidents_display_limit': incidents_display_limit,
     })
 
@@ -942,19 +957,151 @@ def incident_ai_enrich(incident_id):
         if not analysis:
             return jsonify({'error': 'AI returned an empty analysis'}), 502
 
-        # Post as comment to Sentinel via Graph API
+        # Post as comment to Sentinel via Graph API (with dedup guard)
         comment_posted = False
-        if str(incident_id).isdigit():
-            try:
-                comment_text = f'[SOC Dashboard — AI Analysis]\n\n{analysis[:2000]}'
-                graph_post_comment(incident_id, comment_text)
-                comment_posted = True
-            except Exception:
-                pass  # non-fatal — still return the analysis
+        if str(incident_id).isdigit() and _feature_enabled('AI_AUTO_COMMENT_ENABLED'):
+            cache_key = f'ai_comment_{incident_id}'
+            already_posted = getattr(app, '_comment_cache', {}).get(cache_key, 0)
+            import time as _time
+            if _time.time() - already_posted > 120:  # 2-minute dedup window
+                try:
+                    comment_text = f'[SOC Dashboard — AI Analysis]\n\n{analysis[:960]}'
+                    graph_post_comment(incident_id, comment_text[:1000])
+                    comment_posted = True
+                    if not hasattr(app, '_comment_cache'):
+                        app._comment_cache = {}
+                    app._comment_cache[cache_key] = _time.time()
+                except Exception as exc:
+                    app.logger.warning('⚠️  AI comment post failed for %s: %s', incident_id, exc)
+            else:
+                app.logger.info('⏭️  Skipped duplicate AI comment for %s', incident_id)
+                comment_posted = True  # already posted recently
 
         return jsonify({'analysis': analysis, 'comment_posted': comment_posted})
     except Exception:
         return jsonify({'error': 'AI enrichment failed — check server logs'}), 500
+
+
+# ── Security Copilot Enrichment API ─────────────
+
+def _get_enrichment_previews(incident_ids: list) -> dict:
+    """Build a lightweight enrichment preview map for dashboard-data."""
+    try:
+        batch = get_enrichments_batch([str(i) for i in incident_ids])
+        return {
+            iid: {
+                'risk_score': e.get('risk_score'),
+                'source': e.get('source'),
+                'created_at': e.get('created_at'),
+            }
+            for iid, e in batch.items()
+        }
+    except Exception:
+        return {}
+
+
+@app.route('/api/incidents/<incident_id>/copilot-enrich', methods=['POST'])
+@require_login
+def copilot_enrich_incident(incident_id):
+    """On-demand Security Copilot enrichment via Foundry agent."""
+    if not _feature_enabled('SECURITY_COPILOT_ENABLED'):
+        return jsonify({'error': 'Security Copilot integration is disabled'}), 403
+    try:
+        from security_copilot import enrich_via_foundry
+        result = enrich_via_foundry(incident_id)
+        app.logger.info('Copilot enrich %s: success=%s cached=%s', incident_id,
+                        result.get('success'), result.get('cached'))
+        if result.get('success'):
+            # Post enrichment summary as Sentinel comment (skip for cached)
+            comment_posted = False
+            if not result.get('cached') and str(incident_id).isdigit():
+                try:
+                    lines = ['[SOC Dashboard — Security Copilot Enrichment]']
+                    if result.get('risk_score') is not None:
+                        lines.append(f'Risk Score: {result["risk_score"]}/100')
+                    if result.get('summary'):
+                        lines.append(f'\n{result["summary"][:700]}')
+                    if result.get('recommended_actions'):
+                        lines.append('\nRecommended Actions:')
+                        for i, a in enumerate(result['recommended_actions'][:5], 1):
+                            lines.append(f'{i}. {a[:80]}')
+                    graph_post_comment(incident_id, '\n'.join(lines)[:1000])
+                    comment_posted = True
+                    app.logger.info('✅ Copilot comment posted for incident %s', incident_id)
+                except Exception as exc:
+                    app.logger.warning('⚠️  Copilot comment post failed for %s: %s', incident_id, exc)
+            else:
+                app.logger.info('Copilot skip comment: cached=%s isdigit=%s',
+                                result.get('cached'), str(incident_id).isdigit())
+            result['comment_posted'] = comment_posted
+            return jsonify(result)
+        return jsonify({'error': result.get('error', 'Enrichment failed')}), 502
+    except Exception as exc:
+        app.logger.exception('Copilot enrich exception for %s', incident_id)
+        return jsonify({'error': 'Enrichment request failed — check server logs'}), 500
+
+
+@app.route('/api/incidents/<incident_id>/enrichment')
+@require_login
+def get_incident_enrichment(incident_id):
+    """Return the latest enrichment data for an incident."""
+    enrichment = get_enrichment(incident_id)
+    if not enrichment:
+        return jsonify({'enrichment': None})
+    return jsonify({'enrichment': enrichment})
+
+
+@app.route('/api/incidents/bulk-enrich', methods=['POST'])
+@require_login
+def bulk_enrich_incidents():
+    """Enrich multiple incidents at once (manual trigger)."""
+    if not _feature_enabled('SECURITY_COPILOT_ENABLED'):
+        return jsonify({'error': 'Security Copilot integration is disabled'}), 403
+    body = request.get_json(silent=True) or {}
+    ids = body.get('incident_ids', [])
+    if not ids or not isinstance(ids, list):
+        return jsonify({'error': 'Missing incident_ids array'}), 400
+    ids = [str(i) for i in ids[:20]]  # cap at 20
+    try:
+        from security_copilot import auto_enrich_new_incidents
+        result = auto_enrich_new_incidents(ids)
+        return jsonify(result)
+    except Exception:
+        return jsonify({'error': 'Bulk enrichment failed — check server logs'}), 500
+
+
+@app.route('/api/webhooks/copilot-enrichment', methods=['POST'])
+def copilot_webhook():
+    """Receive enrichment callbacks from Logic App.
+    Validates shared secret via X-Webhook-Secret header."""
+    expected_secret = get_config('COPILOT_WEBHOOK_SECRET')
+    if not expected_secret:
+        return jsonify({'error': 'Webhook not configured'}), 503
+    provided_secret = request.headers.get('X-Webhook-Secret', '')
+    if not secrets.compare_digest(provided_secret, expected_secret):
+        return jsonify({'error': 'Unauthorized'}), 401
+    payload = request.get_json(silent=True)
+    if not payload:
+        return jsonify({'error': 'Missing JSON payload'}), 400
+    try:
+        from security_copilot import process_webhook_payload
+        result = process_webhook_payload(payload)
+        if result.get('success'):
+            return jsonify({'success': True})
+        return jsonify({'error': result.get('error', 'Processing failed')}), 400
+    except Exception:
+        return jsonify({'error': 'Webhook processing failed'}), 500
+
+
+@app.route('/api/enrichment-stats')
+@require_login
+def enrichment_stats():
+    """Return enrichment coverage statistics."""
+    try:
+        stats = get_enrichment_stats()
+        return jsonify(stats)
+    except Exception:
+        return jsonify({'error': 'Failed to get enrichment stats'}), 500
 
 
 # ── IOC Upload API (admin-only) ─────────────────

@@ -90,6 +90,38 @@ If the Sentinel Platform service principal is not visible in your tenant, the SP
 token still works as long as the service principal has the correct Sentinel RBAC
 roles (e.g., `Microsoft Sentinel Reader` on the workspace).
 
+#### Troubleshooting: API Not Found in "APIs my organization uses"
+
+If you search for the app ID and nothing appears, the first-party service
+principal hasn't been provisioned in your tenant yet. Create it first:
+
+**Option 1 — Azure CLI:**
+
+```bash
+# Microsoft Defender MCP
+az ad sp create --id 7b7b3966-1961-47b5-b080-43ca5482e21c
+
+# Microsoft Sentinel Platform
+az ad sp create --id 4500ebfb-89b6-4b14-a480-7f749797bfcd
+```
+
+**Option 2 — Microsoft Graph API** (e.g., from Graph Explorer):
+
+```http
+POST https://graph.microsoft.com/v1.0/servicePrincipals
+Content-Type: application/json
+
+{
+  "appId": "7b7b3966-1961-47b5-b080-43ca5482e21c"
+}
+```
+
+(Repeat with `4500ebfb-89b6-4b14-a480-7f749797bfcd` for the Sentinel Platform.)
+
+> **Requires:** `Application.ReadWrite.All` or `Global Administrator` to create
+> service principals. After creation, the API will appear in the "APIs my
+> organization uses" list.
+
 #### Summary: Where to Do What
 
 | What | Where | How |

@@ -79,3 +79,6 @@ skills/soc-dashboard-deployment/
 # ---- Test / scratch scripts ----
 parse_api.py
 test_graph.py
+
+# ---- Archived / retired scripts ----
+_archive/

@@ -4,7 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SOC Dashboard - LIVE - Microsoft Sentinel & Defender</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="/static/chart.umd.min.js"></script>
+    <script>
+        if (typeof Chart === 'undefined') {
+            var s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+            document.head.appendChild(s);
+        }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.ico">
     <style>
         /* ── Theme Variables ─────────────────────────────── */
@@ -677,14 +684,15 @@
                 align-items: center;
             }
             .incidents-table tbody tr:hover { background: var(--table-row-hover); }
-            /* Column mapping: 1=ID, 2=Title, 3=Severity, 4=Status, 5=Owner, 6=Created */
+            /* Column mapping: 1=ID, 2=Title, 3=Severity, 4=Risk, 5=Status, 6=Owner, 7=Created */
             .incidents-table tbody td { padding: 2px 0; border: none; font-size: 13px; }
             .incidents-table tbody td:nth-child(1) { display: none; } /* ID — hidden */
             .incidents-table tbody td:nth-child(2) { grid-column: 1 / -1; font-weight: 600; font-size: 14px; } /* Title — full row */
             .incidents-table tbody td:nth-child(3) { grid-column: 1; } /* Severity badge */
-            .incidents-table tbody td:nth-child(4) { grid-column: 2; } /* Status badge */
-            .incidents-table tbody td:nth-child(5) { display: none; } /* Owner — hidden */
-            .incidents-table tbody td:nth-child(6) { grid-column: 3; font-size: 12px; color: var(--text-faint); } /* Created */
+            .incidents-table tbody td:nth-child(4) { display: none; } /* Risk — hidden on mobile */
+            .incidents-table tbody td:nth-child(5) { grid-column: 2; } /* Status badge */
+            .incidents-table tbody td:nth-child(6) { display: none; } /* Owner — hidden */
+            .incidents-table tbody td:nth-child(7) { grid-column: 3; font-size: 12px; color: var(--text-faint); } /* Created */
 
             /* Modals: full-screen */
             .modal-content, .incident-detail-modal, .escalation-modal, .close-incident-modal, .case-detail-modal {
@@ -979,13 +987,14 @@
                             <th>Incident #</th>
                             <th>Title</th>
                             <th>Severity</th>
+                            <th>Risk</th>
                             <th>Status</th>
                             <th>Owner</th>
                             <th>Created</th>
                         </tr>
                     </thead>
                     <tbody id="incidentsTableBody">
-                        <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
+                        <tr><td colspan="7" style="text-align: center;">Loading...</td></tr>
                     </tbody>
                 </table>
                 </div>
@@ -1516,6 +1525,14 @@
                     <label class="toggle-switch"><input type="checkbox" id="cfg_IOC_UPLOAD_ENABLED"><span class="toggle-slider"></span></label>
                     <label for="cfg_IOC_UPLOAD_ENABLED">IOC Upload to Sentinel (admin-only)</label>
                 </div>
+                <div class="toggle-field">
+                    <label class="toggle-switch"><input type="checkbox" id="cfg_SECURITY_COPILOT_ENABLED"><span class="toggle-slider"></span></label>
+                    <label for="cfg_SECURITY_COPILOT_ENABLED">Security Copilot Integration</label>
+                </div>
+                <div class="toggle-field">
+                    <label class="toggle-switch"><input type="checkbox" id="cfg_COPILOT_AUTO_ENRICH_ENABLED"><span class="toggle-slider"></span></label>
+                    <label for="cfg_COPILOT_AUTO_ENRICH_ENABLED">Copilot Auto-Enrich (on new incidents)</label>
+                </div>
             </div>
 
             <div class="settings-section">
@@ -1637,7 +1654,7 @@
                     toggleEscMethod(m);
                 });
                 // Restore feature toggles
-                ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED'].forEach(k => {
+                ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED','SECURITY_COPILOT_ENABLED','COPILOT_AUTO_ENRICH_ENABLED'].forEach(k => {
                     const cb = document.getElementById('cfg_' + k);
                     if (cb) cb.checked = (cfg[k] || '').toLowerCase() === 'true';
                 });
@@ -1675,7 +1692,7 @@
                 }
             });
             // Feature toggles
-            ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED'].forEach(k => {
+            ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED','SECURITY_COPILOT_ENABLED','COPILOT_AUTO_ENRICH_ENABLED'].forEach(k => {
                 const cb = document.getElementById('cfg_' + k);
                 if (cb) payload[k] = cb.checked ? 'true' : 'false';
             });
@@ -2613,7 +2630,7 @@
             
             if (filtered.length === 0) {
                 if (countMeta) countMeta.textContent = '(showing 0)';
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #666;">No incidents found matching the filter</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #666;">No incidents found matching the filter</td></tr>';
                 return;
             }
 
@@ -2628,6 +2645,9 @@
                 // Count entities
                 const entityCount = inc.entityCount || (inc.entities ? inc.entities.length : 0);
                 const mitreCount = inc.mitreTechniques ? inc.mitreTechniques.length : 0;
+                const enrichment = (window.dashboardData?.enrichments || {})[String(inc.id)];
+                const riskScore = enrichment ? enrichment.risk_score : null;
+                const riskColor = riskScore >= 75 ? '#e74c3c' : riskScore >= 50 ? '#f39c12' : riskScore >= 25 ? '#3498db' : riskScore !== null ? '#27ae60' : '#94a3b8';
                 
                 return `
                 <tr class="clickable" onclick='showIncidentDetails(${JSON.stringify(inc).replace(/'/g, "&apos;")})'>
@@ -2638,6 +2658,7 @@
                         ${mitreCount > 0 ? `<br><small style="color: #e74c3c;">⚔️ ${mitreCount} MITRE techniques</small>` : ''}
                     </td>
                     <td><span class="severity-badge severity-${inc.severity.toLowerCase()}">${inc.severity}</span></td>
+                    <td style="text-align:center;"><span style="color:${riskColor};font-weight:600;">${riskScore !== null ? riskScore : '—'}</span></td>
                     <td>
                         <span class="status-badge ${getIncidentStatusClass(inc.status, inc)}">${getIncidentStatusLabel(inc.status, inc)}</span>
                         ${effectiveStatus(inc) === 'redirected' && inc.redirectIncidentId ? `<br><small style="color:#7b1fa2;">→ #${inc.redirectIncidentId}</small>` : ''}
@@ -3152,11 +3173,13 @@
                     <button id="btnEscalate" class="refresh-btn" style="background: #f44336;" onclick="escalateIncident('${incident.id}')">⚠️ Escalate</button>
                     ${canCloseIncident ? `<button id="btnCloseIncident" class="refresh-btn" style="background: #2e7d32;" onclick="openCloseIncident('${incident.id}')">✅ Close Incident</button>` : ''}
                     ${window.featureFlags?.ai_assistant && String(incident.id).match(/^\d+$/) ? `<button id="btnAiEnrich" class="refresh-btn" style="background: #7c3aed;" onclick="aiEnrichIncident('${incident.id}', this)">🧠 AI Analyse</button>` : ''}
+                    ${window.featureFlags?.security_copilot ? `<button id="btnCopilotEnrich" class="refresh-btn" style="background: #0078d4;" onclick="copilotEnrichIncident('${incident.id}', this)">🛡️ Copilot Enrich</button>` : ''}
                     <button class="refresh-btn" style="background: #1565c0;" onclick="openCreateCase('${incident.id}', \`${incident.title ? incident.title.replace(/`/g,'') : ''}\`)">📁 Create Case</button>
                     ${incident.webUrl ? `<button class="refresh-btn" style="background: #2980b9;" onclick="window.open('${incident.webUrl}', '_blank')">🔗 Open in Portal</button>` : ''}
                     <button class="refresh-btn" style="background: #666;" onclick="closeModal()">Close</button>
                 </div>
                 <div id="aiEnrichResult" style="display:none; margin-top: 16px; padding: 14px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; border-left: 4px solid #7c3aed;"></div>
+                <div id="copilotEnrichResult" style="display:none; margin-top: 16px; padding: 14px 16px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; border-left: 4px solid #0078d4;"></div>
             `;
             
             modal.style.display = 'block';
@@ -4769,7 +4792,7 @@
                     if (resultDiv) {
                         resultDiv.style.display = 'block';
                         resultDiv.innerHTML = `<h3 style="margin:0 0 8px;">🧠 AI Analysis</h3>`
-                            + `<div style="white-space:pre-wrap; font-size:13px; line-height:1.6;">${escapeHtml(data.analysis)}</div>`
+                            + `<div style="font-size:13px; line-height:1.6;">${renderMd(data.analysis)}</div>`
                             + (data.comment_posted ? `<div style="margin-top:8px; font-size:12px; color:#27ae60;">✅ Posted as comment to Sentinel</div>` : '');
                     }
                 } else {
@@ -4784,6 +4807,108 @@
                 alert('Network error — could not enrich incident');
                 btn.textContent = '🧠 AI Analyse';
                 btn.style.background = '#7c3aed';
+                btn.disabled = false;
+            }
+        }
+
+        async function copilotEnrichIncident(incidentId, btn) {
+            if (!btn) return;
+            btn.disabled = true;
+            btn.textContent = '🔄 Enriching…';
+            const resultDiv = document.getElementById('copilotEnrichResult');
+            if (resultDiv) { resultDiv.style.display = 'none'; resultDiv.innerHTML = ''; }
+            const startTime = Date.now();
+            const timer = setInterval(() => { btn.textContent = `🔄 Enriching… ${Math.floor((Date.now()-startTime)/1000)}s`; }, 1000);
+
+            try {
+                const resp = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/copilot-enrich`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                clearInterval(timer);
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    btn.textContent = data.cached ? '✅ Enriched (cached)' : '✅ Enriched';
+                    btn.style.background = '#27ae60';
+                    if (resultDiv) {
+                        const rs = data.risk_score;
+                        const riskColor = rs >= 75 ? '#e74c3c' : rs >= 50 ? '#f39c12' : rs >= 25 ? '#3498db' : '#27ae60';
+                        const riskLabel = rs >= 75 ? 'Critical' : rs >= 50 ? 'High' : rs >= 25 ? 'Medium' : 'Low';
+                        let html = `<h3 style="margin:0 0 10px;">🛡️ Security Copilot Enrichment</h3>`;
+
+                        // Risk score gauge bar
+                        if (rs != null) {
+                            html += `<div style="margin-bottom:14px;">
+                                <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+                                    <span style="font-size:28px;font-weight:800;color:${riskColor};">${rs}</span>
+                                    <span style="font-size:13px;color:var(--text-secondary);">/100</span>
+                                    <span style="padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;color:#fff;background:${riskColor};">${riskLabel}</span>
+                                </div>
+                                <div style="height:6px;background:var(--bg-card);border-radius:3px;overflow:hidden;">
+                                    <div style="height:100%;width:${rs}%;background:${riskColor};border-radius:3px;transition:width .3s;"></div>
+                                </div>
+                            </div>`;
+                        }
+
+                        // Summary with markdown rendering
+                        if (data.summary) {
+                            html += `<div style="font-size:13px;line-height:1.6;margin-bottom:14px;">${renderMd(data.summary)}</div>`;
+                        }
+
+                        // Recommended actions
+                        if (data.recommended_actions && data.recommended_actions.length) {
+                            html += `<h4 style="margin:10px 0 6px;">💡 Recommended Actions</h4><ol style="margin:0;padding-left:22px;font-size:13px;line-height:1.5;">`;
+                            data.recommended_actions.forEach(a => {
+                                // Strip leading bold label pattern like "**Label:**" for cleaner display
+                                const clean = a.replace(/^\*\*[^*]+\*\*:?\s*/, '');
+                                html += `<li style="margin-bottom:5px;">${renderMd(clean)}</li>`;
+                            });
+                            html += `</ol>`;
+                        }
+
+                        // Entity reputations as pills
+                        if (data.entity_reputations && data.entity_reputations.length) {
+                            html += `<h4 style="margin:14px 0 6px;">🔍 Entity Reputations</h4>`;
+                            data.entity_reputations.forEach(e => {
+                                const det = (e.details || '').toLowerCase();
+                                const pillColor = det.includes('malicious') ? '#e74c3c' : det.includes('suspicious') ? '#f39c12' : det.includes('clean') || det.includes('benign') ? '#27ae60' : '#64748b';
+                                html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border-color);">
+                                    <strong>${escapeHtml(e.entity_name)}</strong>
+                                    <span style="font-size:11px;color:var(--text-secondary);">(${escapeHtml(e.entity_type)})</span>
+                                    <span style="margin-left:auto;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;background:${pillColor};">
+                                        ${det.includes('malicious') ? '⛔ Malicious' : det.includes('suspicious') ? '⚠️ Suspicious' : det.includes('clean') || det.includes('benign') ? '✅ Clean' : '❓ Unknown'}
+                                    </span>
+                                </div>`;
+                                if (e.details) {
+                                    html += `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0 6px 4px;">${renderMd(e.details)}</div>`;
+                                }
+                            });
+                        }
+
+                        // Comment posted indicator
+                        if (data.comment_posted) {
+                            html += `<div style="margin-top:10px;font-size:12px;color:#27ae60;">✅ Posted as comment to Sentinel</div>`;
+                        }
+
+                        resultDiv.style.display = 'block';
+                        resultDiv.innerHTML = html;
+                    }
+                    // Update enrichments cache so risk score shows in table
+                    if (!window.dashboardData) window.dashboardData = {};
+                    if (!window.dashboardData.enrichments) window.dashboardData.enrichments = {};
+                    window.dashboardData.enrichments[String(incidentId)] = { risk_score: data.risk_score, source: 'foundry_agent' };
+                    renderIncidentsTable();
+                } else {
+                    alert(data.error || 'Copilot enrichment failed');
+                    btn.textContent = '🛡️ Copilot Enrich';
+                    btn.style.background = '#0078d4';
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                clearInterval(timer);
+                alert('Network error — could not enrich incident');
+                btn.textContent = '🛡️ Copilot Enrich';
+                btn.style.background = '#0078d4';
                 btn.disabled = false;
             }
         }
@@ -4952,6 +5077,35 @@
             const d = document.createElement('div');
             d.textContent = str;
             return d.innerHTML;
+        }
+
+        /** Lightweight markdown-ish → HTML for AI/Copilot analysis panels. */
+        function renderMd(raw) {
+            if (!raw) return '';
+            let t = escapeHtml(raw);
+            // ### headers
+            t = t.replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 4px;color:var(--text-primary);">$1</h4>');
+            t = t.replace(/^## (.+)$/gm, '<h3 style="margin:14px 0 6px;color:var(--text-primary);">$1</h3>');
+            // bold **text** and __text__
+            t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            t = t.replace(/__(.+?)__/g, '<strong>$1</strong>');
+            // numbered lists  1. item
+            t = t.replace(/^(\d+)\.\s+(.+)$/gm, '<li style="margin-bottom:3px;">$2</li>');
+            // wrap consecutive <li> in <ol>
+            t = t.replace(/((?:<li[^>]*>.*?<\/li>\s*)+)/g, '<ol style="margin:4px 0;padding-left:22px;">$1</ol>');
+            // bullet lists  - item
+            t = t.replace(/^[-•]\s+(.+)$/gm, '<li style="margin-bottom:3px;">$1</li>');
+            t = t.replace(/((?:<li[^>]*>.*?<\/li>\s*)+)/g, (m) => {
+                // Don't re-wrap if already in <ol>
+                return m.includes('<ol') ? m : `<ul style="margin:4px 0;padding-left:22px;">${m}</ul>`;
+            });
+            // backtick `code`
+            t = t.replace(/`([^`]+)`/g, '<code style="background:var(--bg-surface);padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>');
+            // paragraphs: double newline
+            t = t.replace(/\n{2,}/g, '</p><p style="margin:8px 0;">');
+            // single newline → <br> (but not inside lists)
+            t = t.replace(/\n/g, '<br>');
+            return `<p style="margin:0 0 8px;">${t}</p>`;
         }
 
         function openCreateCase(incidentId, incidentTitle) {
