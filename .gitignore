@@ -50,6 +50,7 @@ MIGRATION_SUCCESS.md
 # ---- Logs ----
 *.log
 logs/
+debug-logs/
 
 # ---- IDE / Workspace ----
 .vscode/
