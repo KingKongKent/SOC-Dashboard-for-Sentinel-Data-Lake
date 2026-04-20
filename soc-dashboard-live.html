@@ -80,6 +80,75 @@
             --ai-prompt-border: #475569;
         }
 
+        /* ── Dark-mode overrides for inline-styled elements ── */
+        :root.dark-mode [style*="background: #f5f5f5"],
+        :root.dark-mode [style*="background: #f8f9fa"],
+        :root.dark-mode [style*="background:#f5f5f5"],
+        :root.dark-mode [style*="background:#f8f9fa"] {
+            background: var(--bg-surface) !important;
+        }
+        :root.dark-mode [style*="background: #fff;"],
+        :root.dark-mode [style*="background: #fff "],
+        :root.dark-mode [style*="background:#fff;"] {
+            background: var(--bg-card) !important;
+        }
+        :root.dark-mode [style*="background: #e3f2fd"],
+        :root.dark-mode [style*="background:#e3f2fd"] {
+            background: #1e3a5f !important;  /* dark blue tint */
+        }
+        :root.dark-mode [style*="background: #fff3e0"],
+        :root.dark-mode [style*="background:#fff3e0"],
+        :root.dark-mode [style*="background: #fff3cd"],
+        :root.dark-mode [style*="background:#fff3cd"] {
+            background: #3d2e1a !important;  /* dark amber tint */
+        }
+        :root.dark-mode [style*="background: #fffde7"],
+        :root.dark-mode [style*="background:#fffde7"] {
+            background: #3a3520 !important;  /* dark yellow tint */
+        }
+        :root.dark-mode [style*="background: #e8f5e9"],
+        :root.dark-mode [style*="background:#e8f5e9"] {
+            background: #1a3d1e !important;  /* dark green tint */
+        }
+        :root.dark-mode [style*="background:#f3e5f5"],
+        :root.dark-mode [style*="background: #f3e5f5"] {
+            background: #2d1a3d !important;  /* dark purple tint */
+        }
+        :root.dark-mode [style*="color: #333"],
+        :root.dark-mode [style*="color:#333"] {
+            color: var(--text-primary) !important;
+        }
+        :root.dark-mode [style*="color: #666"],
+        :root.dark-mode [style*="color:#666"] {
+            color: var(--text-secondary) !important;
+        }
+        :root.dark-mode [style*="color: #999"],
+        :root.dark-mode [style*="color:#999"] {
+            color: var(--text-faint) !important;
+        }
+        :root.dark-mode [style*="background: #ddd"],
+        :root.dark-mode [style*="background:#ddd"] {
+            background: var(--border-color) !important;
+        }
+        :root.dark-mode [style*="border: 1px solid #ce93d8"] {
+            border-color: #7b1fa2 !important;
+        }
+        :root.dark-mode [style*="border: 1px solid #e0e0e0"],
+        :root.dark-mode [style*="border:1px solid #e0e0e0"] {
+            border-color: var(--border-color) !important;
+        }
+        /* Timeline dot border fix */
+        :root.dark-mode [style*="border: 2px solid white"] {
+            border-color: var(--bg-card) !important;
+        }
+        /* Hover states for interactive elements */
+        .dm-hover-surface { transition: background 0.2s, transform 0.2s; }
+        .dm-hover-surface:hover { background: #e8e8e8 !important; transform: translateX(4px); }
+        :root.dark-mode .dm-hover-surface:hover { background: var(--bg-card-hover) !important; }
+        .dm-hover-blue { transition: background 0.2s, transform 0.2s; }
+        .dm-hover-blue:hover { background: #e3f2fd !important; transform: translateX(4px); }
+        :root.dark-mode .dm-hover-blue:hover { background: #263f5f !important; }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -3092,7 +3161,7 @@
                     <h3>🔍 Entities (${incident.entityCount || incident.entities.length})</h3>
                     <div style="max-height: 200px; overflow-y: auto;">
                         ${incident.entities.map(entity => `
-                            <div class="clickable" onclick='showEntityDetails(${JSON.stringify(entity)}, "${incident.id}")' style="padding: 8px; margin: 5px 0; background: #f5f5f5; border-radius: 4px; border-left: 3px solid ${entity.verdict === 'malicious' ? '#e74c3c' : entity.verdict === 'suspicious' ? '#f39c12' : '#3498db'}; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#e8e8e8'; this.style.transform='translateX(4px)';" onmouseout="this.style.background='#f5f5f5'; this.style.transform='translateX(0)';" title="Click for more details">
+                            <div class="clickable dm-hover-surface" onclick='showEntityDetails(${JSON.stringify(entity)}, "${incident.id}")' style="padding: 8px; margin: 5px 0; background: #f5f5f5; border-radius: 4px; border-left: 3px solid ${entity.verdict === 'malicious' ? '#e74c3c' : entity.verdict === 'suspicious' ? '#f39c12' : '#3498db'}; cursor: pointer;" title="Click for more details">
                                 <strong>${entity.type}:</strong> ${entity.name}
                                 <span style="float: right; color: ${entity.verdict === 'malicious' ? '#e74c3c' : entity.verdict === 'suspicious' ? '#f39c12' : '#27ae60'};">
                                     ${entity.verdict || 'unknown'}
@@ -3217,7 +3286,7 @@
                         <div style="position: absolute; left: 5px; top: 8px; width: 12px; height: 12px; border-radius: 50%; background: ${severityColor}; border: 2px solid white; box-shadow: 0 0 0 2px ${severityColor};"></div>
                         
                         <!-- Alert content -->
-                        <div class="clickable" onclick='showAlertDetails(${JSON.stringify(alert)})' style="background: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 3px solid ${severityColor}; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='#e3f2fd'; this.style.transform='translateX(4px)';" onmouseout="this.style.background='#f8f9fa'; this.style.transform='translateX(0)';" title="Click for alert details">
+                        <div class="clickable dm-hover-blue" onclick='showAlertDetails(${JSON.stringify(alert)})' style="background: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 3px solid ${severityColor}; cursor: pointer;" title="Click for alert details">
                             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
                                 <div>
                                     <strong style="color: #333; font-size: 14px;">${alert.title}</strong>

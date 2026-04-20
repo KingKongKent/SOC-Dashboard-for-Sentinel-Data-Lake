@@ -1,0 +1,26 @@
+type,value,confidence,description,tags,valid_until
+ipv4-addr,192.0.2.1,90,Known C2 server - APT29,c2;apt29;russia,2026-12-31
+ipv4-addr,192.0.2.10,85,Brute-force SSH source,bruteforce;ssh,2026-12-31
+ipv4-addr,198.51.100.5,75,Spam relay observed in honeypot,spam;honeypot,2026-12-31
+ipv4-addr,198.51.100.22,80,Cobalt Strike beacon callback,cobaltstrike;c2,2026-12-31
+ipv4-addr,203.0.113.44,70,Scanning activity - port 445,scanning;smb,2026-12-31
+ipv4-addr,203.0.113.99,60,Low-confidence botnet node,botnet;mirai,2026-10-31
+ipv6-addr,2001:db8::dead:beef,75,IPv6 C2 callback observed,c2;ipv6,2026-12-31
+domain-name,evil-payload.example.com,95,Malware distribution domain,malware;dropper,2026-12-31
+domain-name,phish-login.example.com,90,Credential harvesting phishing page,phishing;credential-theft,2026-12-31
+domain-name,c2-beacon.example.com,85,Cobalt Strike team server DNS,cobaltstrike;c2;dns,2026-12-31
+domain-name,exfil-data.example.com,80,Data exfiltration endpoint,exfiltration;apt,2026-12-31
+domain-name,crypto-miner.example.com,65,Cryptojacking pool proxy,cryptomining;pool,2026-10-31
+url,https://evil-payload.example.com/stage2.exe,95,Second-stage payload URL,malware;dropper;stage2,2026-12-31
+url,https://phish-login.example.com/microsoft/login.html,90,O365 phishing kit,phishing;o365;aitm,2026-12-31
+url,https://paste.example.com/raw/abc123,70,Paste site hosting encoded C2 config,c2;paste;encoded,2026-12-31
+url,ftp://exfil-data.example.com/upload/,75,FTP exfil drop point,exfiltration;ftp,2026-12-31
+file:sha256,e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,50,Empty file hash - test baseline,test;baseline,2026-12-31
+file:sha256,a94a8fe5ccb19ba61c4c0873d391e987982fbbd3a3e4c5f6b7d8f3e2c1a0b9d8,90,Ransomware payload - LockBit variant,ransomware;lockbit,2026-12-31
+file:sha1,da39a3ee5e6b4b0d3255bfef95601890afd80709,45,Empty file SHA1 - test,test;baseline,2026-12-31
+file:sha1,2ef7bde608ce5404e97d5f042f95f89f1c232871,85,Trojan dropper first stage,trojan;dropper,2026-12-31
+file:md5,d41d8cd98f00b204e9800998ecf8427e,40,Empty file MD5 - test baseline,test;baseline,2026-12-31
+file:md5,098f6bcd4621d373cade4e832627b4f6,80,Known RAT binary,rat;backdoor,2026-12-31
+ipv4-addr,192.0.2.200,55,Tor exit node - low confidence,tor;anonymization,2026-09-30
+domain-name,dga-abcxyz123.example.com,70,DGA-generated domain,dga;botnet;automated,2026-12-31
+url,https://cdn.example.com/update.js,60,Suspicious JS loader - possible supply chain,supplychain;javascript,2026-12-31

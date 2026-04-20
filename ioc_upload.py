@@ -69,9 +69,13 @@ def _discover_sentinel_resource() -> Tuple[str, str]:
     Caches discovered values in config DB for subsequent calls.
     Falls back to AZURE_SUBSCRIPTION_ID / AZURE_RESOURCE_GROUP config if set.
     """
-    # 1. Check if already cached in config
+    # 1. Check if already cached in config (ignore placeholder values)
     sub = get_config('AZURE_SUBSCRIPTION_ID')
     rg = get_config('AZURE_RESOURCE_GROUP')
+    if sub and sub.startswith('your-'):
+        sub = None
+    if rg and rg.startswith('your-'):
+        rg = None
     if sub and rg:
         return sub, rg
 

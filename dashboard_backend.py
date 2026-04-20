@@ -158,6 +158,8 @@ def save_setup():
     SETUP_KEYS = {
         'TENANT_ID', 'CLIENT_ID', 'CLIENT_SECRET',
         'REDIRECT_URI', 'ADMIN_USERS', 'ESCALATION_EMAIL',
+        'AZURE_SUBSCRIPTION_ID', 'AZURE_RESOURCE_GROUP',
+        'SENTINEL_WORKSPACE_ID', 'SENTINEL_WORKSPACE_NAME',
     }
     saved = []
     for key, value in payload.items():
