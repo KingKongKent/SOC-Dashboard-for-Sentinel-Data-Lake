@@ -269,7 +269,7 @@ def _seed_workspace_from_config(cursor) -> None:
         from config_manager import get_config
         ws_id = get_config('SENTINEL_WORKSPACE_ID')
         ws_name = get_config('SENTINEL_WORKSPACE_NAME') or 'Default'
-        if ws_id:
+        if ws_id and not ws_id.startswith('your-'):
             cursor.execute(
                 'INSERT INTO workspaces (workspace_id, name, is_default) VALUES (?, ?, 1)',
                 (ws_id, ws_name),

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import json
 import os
 import secrets
+import threading
 
 # Import database functions
 try:
@@ -166,6 +167,16 @@ def save_setup():
         if key in SETUP_KEYS and isinstance(value, str) and value.strip():
             set_config(key, value.strip())
             saved.append(key)
+    # Seed workspaces table from setup values
+    if 'SENTINEL_WORKSPACE_ID' in saved:
+        try:
+            ws_id = payload['SENTINEL_WORKSPACE_ID'].strip()
+            ws_name = (payload.get('SENTINEL_WORKSPACE_NAME') or 'Default').strip()
+            existing = get_workspaces()
+            if not any(w['workspace_id'] == ws_id for w in existing):
+                add_workspace(ws_id, ws_name, is_default=True)
+        except Exception:
+            pass
     print(f'\u2699\ufe0f  Setup: saved {saved}')
     return jsonify({'success': True, 'saved': saved})
 
@@ -249,6 +260,7 @@ def update_settings():
         'CLOSE_INCIDENT_ENABLED',
         'LOGS_ENABLED',
         'IOC_UPLOAD_ENABLED',
+        'VIRUSTOTAL_ENABLED',
         'SECURITY_COPILOT_ENABLED',
         'COPILOT_AUTO_ENRICH_ENABLED',
         'COPILOT_AUTO_ENRICH_MAX_PER_CYCLE',
@@ -290,16 +302,39 @@ def test_connection():
     except Exception:
         return jsonify({'success': False, 'message': 'Connection test failed — check network and credentials'})
 
+_refresh_status = {'running': False, 'last_result': None, 'last_error': None, 'started_at': None, 'finished_at': None}
+
 @app.route('/api/refresh', methods=['POST'])
 @require_admin
 def trigger_refresh():
-    """Trigger an immediate data refresh."""
-    try:
-        from append_data import fetch_and_append_new_data
-        result = fetch_and_append_new_data()
-        return jsonify({'success': True, 'result': result})
-    except Exception:
-        return jsonify({'success': False, 'message': 'Refresh failed — check server logs'}), 500
+    """Trigger an immediate data refresh (runs in background thread)."""
+    if _refresh_status['running']:
+        return jsonify({'success': False, 'message': 'Refresh already in progress'}), 409
+
+    def _run_refresh():
+        _refresh_status['running'] = True
+        _refresh_status['last_error'] = None
+        _refresh_status['started_at'] = datetime.utcnow().isoformat()
+        _refresh_status['finished_at'] = None
+        try:
+            from append_data import fetch_and_append_new_data
+            result = fetch_and_append_new_data()
+            _refresh_status['last_result'] = result
+        except Exception as exc:
+            _refresh_status['last_error'] = type(exc).__name__
+            app.logger.error('Refresh failed: %s', exc)
+        finally:
+            _refresh_status['running'] = False
+            _refresh_status['finished_at'] = datetime.utcnow().isoformat()
+
+    threading.Thread(target=_run_refresh, daemon=True).start()
+    return jsonify({'success': True, 'message': 'Refresh started — data will update shortly'})
+
+@app.route('/api/refresh/status')
+@require_login
+def refresh_status():
+    """Poll the background refresh status."""
+    return jsonify(_refresh_status)
 
 # ── Dashboard routes (authenticated) ────────────
 
@@ -787,7 +822,7 @@ def get_features():
     except (TypeError, ValueError):
         incidents_display_limit = 100
     incidents_display_limit = max(10, min(1000, incidents_display_limit))
-    mdti_raw = (get_config('MDTI_ENABLED', 'true') or 'true').strip().lower()
+    mdti_raw = (get_config('MDTI_ENABLED', 'false') or 'false').strip().lower()
     mdti_enabled = mdti_raw in ('true', '1', 'yes', 'on')
     return jsonify({
         'ai_assistant': _feature_enabled('AI_ASSISTANT_ENABLED'),
@@ -1289,9 +1324,11 @@ def ioc_feed_presets():
 _LOG_FILES = {
     'error':  lambda: os.getenv('LOG_PATH', '/var/log/soc-dashboard/error.log'),
     'access': lambda: os.getenv('ACCESS_LOG_PATH', '/var/log/soc-dashboard/access.log'),
+    'service': None,  # special: journalctl
 }
 
 import re as _re
+import subprocess as _subprocess
 
 _GUNICORN_RE = _re.compile(
     r'^\[(?P<ts>[^\]]+)\]\s+\[\d+\]\s+\[(?P<level>\w+)\]\s+(?P<msg>.*)$'
@@ -1303,6 +1340,24 @@ _PYTHON_LOG_RE = _re.compile(
     r'^(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})[,.]?\d*\s+(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+(?P<msg>.*)$',
     _re.IGNORECASE
 )
+_SYSTEMD_RE = _re.compile(
+    r'^(?P<ts>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+\S+\s+\S+\[\d+\]:\s*(?P<msg>.*)$'
+)
+
+_EMOJI_LEVEL = {
+    '✅': 'INFO', '⚙': 'INFO', '📊': 'INFO', '💾': 'INFO',
+    '🌐': 'INFO', '☑': 'INFO', '📦': 'INFO',
+    '⚠': 'WARNING', '❌': 'ERROR', '🚨': 'ERROR',
+}
+
+
+def _infer_emoji_level(msg: str) -> str:
+    """Infer log level from leading emoji character."""
+    stripped = msg.lstrip()
+    for ch, level in _EMOJI_LEVEL.items():
+        if stripped.startswith(ch):
+            return level
+    return ''
 
 
 def _parse_log_line(line: str, log_type: str) -> dict:
@@ -1315,6 +1370,12 @@ def _parse_log_line(line: str, log_type: str) -> dict:
             level = 'ERROR' if status >= 500 else 'WARNING' if status >= 400 else 'INFO'
             return {'ts': m.group('ts'), 'level': level, 'msg': f"{m.group('method')} {m.group('path')} → {status}",
                     'ip': m.group('ip'), 'status': status, 'ua': m.group('ua'), 'raw': raw}
+    elif log_type == 'service':
+        m = _SYSTEMD_RE.match(raw)
+        if m:
+            msg = m.group('msg')
+            level = _infer_emoji_level(msg) or 'INFO'
+            return {'ts': m.group('ts'), 'level': level, 'msg': msg, 'raw': raw}
     else:
         m = _GUNICORN_RE.match(raw)
         if m:
@@ -1322,6 +1383,10 @@ def _parse_log_line(line: str, log_type: str) -> dict:
         m = _PYTHON_LOG_RE.match(raw)
         if m:
             return {'ts': m.group('ts'), 'level': m.group('level').upper(), 'msg': m.group('msg'), 'raw': raw}
+        # Try emoji level inference for captured print() output
+        level = _infer_emoji_level(raw)
+        if level:
+            return {'ts': '', 'level': level, 'msg': raw, 'raw': raw}
     # Fallback — unparsed line
     return {'ts': '', 'level': '', 'msg': raw, 'raw': raw}
 
@@ -1336,10 +1401,21 @@ def get_logs():
     log_type = request.args.get('file', 'error')
     if log_type not in _LOG_FILES:
         return jsonify({'error': 'Invalid log file'}), 400
-    log_path = _LOG_FILES[log_type]()
     lines_requested = min(int(request.args.get('lines', 200)), 2000)
 
     try:
+        # Service log: read from journalctl
+        if log_type == 'service':
+            unit = 'dashboard.service'
+            proc = _subprocess.run(
+                ['journalctl', '-u', unit, '--no-pager', '-n', str(lines_requested)],
+                capture_output=True, text=True, timeout=10,
+            )
+            raw_lines = proc.stdout.splitlines(keepends=True) if proc.stdout else []
+            parsed = [_parse_log_line(l, log_type) for l in raw_lines]
+            return jsonify({'lines': raw_lines, 'parsed': parsed, 'path': f'journalctl -u {unit}', 'type': log_type})
+
+        log_path = _LOG_FILES[log_type]()
         if not os.path.isfile(log_path):
             return jsonify({'lines': [], 'parsed': [], 'path': log_path, 'error': 'Log file not found'})
         from collections import deque
@@ -1350,6 +1426,37 @@ def get_logs():
         return jsonify({'lines': raw_lines, 'parsed': parsed, 'path': log_path, 'type': log_type})
     except Exception:
         return jsonify({'error': 'Failed to read log file'}), 500
+
+
+@app.route('/api/logs/download')
+@require_admin
+def download_logs():
+    """Download the current log file as a text attachment."""
+    if not _feature_enabled('LOGS_ENABLED'):
+        return jsonify({'error': 'Logs viewer is disabled'}), 403
+
+    log_type = request.args.get('file', 'error')
+    if log_type not in _LOG_FILES:
+        return jsonify({'error': 'Invalid log file'}), 400
+
+    try:
+        if log_type == 'service':
+            proc = _subprocess.run(
+                ['journalctl', '-u', 'dashboard.service', '--no-pager', '-n', '2000'],
+                capture_output=True, text=True, timeout=10,
+            )
+            from io import BytesIO
+            buf = BytesIO((proc.stdout or '').encode('utf-8'))
+            return send_file(buf, mimetype='text/plain', as_attachment=True,
+                             download_name=f'dashboard-service-{datetime.utcnow().strftime("%Y%m%d-%H%M%S")}.log')
+
+        log_path = _LOG_FILES[log_type]()
+        if not os.path.isfile(log_path):
+            return jsonify({'error': 'Log file not found'}), 404
+        return send_file(log_path, mimetype='text/plain', as_attachment=True,
+                         download_name=f'{log_type}-{datetime.utcnow().strftime("%Y%m%d-%H%M%S")}.log')
+    except Exception:
+        return jsonify({'error': 'Failed to download log file'}), 500
 
 
 @app.route('/')

@@ -1481,6 +1481,10 @@ def fetch_virustotal_stats(incidents):
     Falls back to incident-based stats when no API key or no hashes available.
     Rate-limited to 4 requests/minute (VT free tier).
     """
+    if _cfg('VIRUSTOTAL_ENABLED') == 'false':
+        print("  ⏭️  VirusTotal enrichment disabled — using incident-based stats")
+        return fetch_virustotal_stats_from_incidents(incidents)
+
     vt_key = _cfg('VIRUSTOTAL_API_KEY')
     if not vt_key:
         return fetch_virustotal_stats_from_incidents(incidents)

@@ -1211,6 +1211,7 @@
                     <select id="logFile" onchange="fetchLogs()">
                         <option value="error">Error Log</option>
                         <option value="access">Access Log</option>
+                        <option value="service">Service Journal</option>
                     </select>
                     <select id="logLines" onchange="fetchLogs()">
                         <option value="100">Last 100</option>
@@ -1220,6 +1221,7 @@
                     </select>
                     <input type="text" id="logFilter" placeholder="Filter text…" oninput="filterLogDisplay()" style="width:160px;">
                     <button class="refresh-btn" onclick="fetchLogs()">🔄 Refresh</button>
+                    <button class="refresh-btn" onclick="downloadLogs()" title="Download current log file">⬇ Download</button>
                     <label style="display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-size:13px;cursor:pointer;">
                         <input type="checkbox" id="logAutoRefresh" onchange="toggleLogAutoRefresh()"> Auto (10s)
                     </label>
@@ -1595,6 +1597,11 @@
                     <label for="cfg_IOC_UPLOAD_ENABLED">IOC Upload to Sentinel (admin-only)</label>
                 </div>
                 <div class="toggle-field">
+                    <label class="toggle-switch"><input type="checkbox" id="cfg_VIRUSTOTAL_ENABLED"><span class="toggle-slider"></span></label>
+                    <label for="cfg_VIRUSTOTAL_ENABLED">VirusTotal Enrichment</label>
+                </div>
+                <small style="display:block;margin:2px 0 8px 54px;color:#94a3b8">Requires VIRUSTOTAL_API_KEY. Falls back to incident-based stats when disabled.</small>
+                <div class="toggle-field">
                     <label class="toggle-switch"><input type="checkbox" id="cfg_SECURITY_COPILOT_ENABLED"><span class="toggle-slider"></span></label>
                     <label for="cfg_SECURITY_COPILOT_ENABLED">Security Copilot Integration</label>
                 </div>
@@ -1723,7 +1730,7 @@
                     toggleEscMethod(m);
                 });
                 // Restore feature toggles
-                ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED','SECURITY_COPILOT_ENABLED','COPILOT_AUTO_ENRICH_ENABLED'].forEach(k => {
+                ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED','VIRUSTOTAL_ENABLED','SECURITY_COPILOT_ENABLED','COPILOT_AUTO_ENRICH_ENABLED'].forEach(k => {
                     const cb = document.getElementById('cfg_' + k);
                     if (cb) cb.checked = (cfg[k] || '').toLowerCase() === 'true';
                 });
@@ -1761,7 +1768,7 @@
                 }
             });
             // Feature toggles
-            ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED','SECURITY_COPILOT_ENABLED','COPILOT_AUTO_ENRICH_ENABLED'].forEach(k => {
+            ['AI_ASSISTANT_ENABLED','KQL_CONSOLE_ENABLED','MDTI_ENABLED','AI_AUTO_ENRICH_ENABLED','AI_AUTO_COMMENT_ENABLED','CLOSE_INCIDENT_ENABLED','LOGS_ENABLED','IOC_UPLOAD_ENABLED','VIRUSTOTAL_ENABLED','SECURITY_COPILOT_ENABLED','COPILOT_AUTO_ENRICH_ENABLED'].forEach(k => {
                 const cb = document.getElementById('cfg_' + k);
                 if (cb) payload[k] = cb.checked ? 'true' : 'false';
             });
@@ -2205,6 +2212,11 @@
             const on = document.getElementById('logAutoRefresh').checked;
             if (logAutoRefreshTimer) { clearInterval(logAutoRefreshTimer); logAutoRefreshTimer = null; }
             if (on) { fetchLogs(); logAutoRefreshTimer = setInterval(fetchLogs, 10000); }
+        }
+
+        function downloadLogs() {
+            const file = document.getElementById('logFile').value;
+            window.open(`/api/logs/download?file=${encodeURIComponent(file)}`, '_blank');
         }
 
         // ── Data source badge ──
@@ -5385,9 +5397,22 @@
                 // Admins trigger backend ingest first, then reload dashboard data.
                 if (currentUser?.is_admin) {
                     const res = await fetch('/api/refresh', { method: 'POST' });
-                    if (!res.ok) {
-                        const data = await res.json().catch(() => ({}));
+                    const data = await res.json().catch(() => ({}));
+                    if (res.status === 409) {
+                        // Already running — fall through to polling
+                    } else if (!res.ok) {
                         throw new Error(data.error || data.message || 'Refresh failed');
+                    }
+                    // Poll until background refresh finishes
+                    if (btn) btn.textContent = '⟳ Fetching data...';
+                    for (let i = 0; i < 120; i++) {
+                        await new Promise(r => setTimeout(r, 3000));
+                        const st = await fetch('/api/refresh/status').then(r => r.json()).catch(() => ({}));
+                        if (!st.running) {
+                            if (st.last_error) throw new Error(`Refresh error: ${st.last_error}`);
+                            break;
+                        }
+                        if (btn) btn.textContent = `⟳ Syncing... (${i * 3}s)`;
                     }
                 }
                 await refreshData();
