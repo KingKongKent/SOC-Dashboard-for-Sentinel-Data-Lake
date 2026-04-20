@@ -19,6 +19,9 @@ if sys.platform == 'win32':
 
 # Load environment variables
 load_dotenv()
+_FHS_ENV = '/etc/soc-dashboard/.env'
+if os.path.isfile(_FHS_ENV):
+    load_dotenv(_FHS_ENV)
 
 
 def _cfg(key: str, default: str = '') -> str:
@@ -1980,8 +1983,9 @@ def generate_dashboard_data():
         'mdtiArticles': mdti_articles
     }
     
-    # Save to file
-    output_file = 'dashboard_data.json'
+    # Save to file — write alongside the database so the service user can write it
+    _db_dir = os.path.dirname(os.getenv('DB_PATH', 'soc_dashboard.db')) or '.'
+    output_file = os.path.join(_db_dir, 'dashboard_data.json')
     with open(output_file, 'w') as f:
         json.dump(data, f, indent=2)
     

@@ -8,8 +8,18 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import os
+from dotenv import load_dotenv
 
-DB_FILE = os.getenv('DB_PATH', 'soc_dashboard.db')
+# Load .env — check CWD first (dev), then FHS production path
+load_dotenv()
+_FHS_ENV = '/etc/soc-dashboard/.env'
+if os.path.isfile(_FHS_ENV):
+    load_dotenv(_FHS_ENV)
+
+
+def _get_db_path() -> str:
+    """Resolve DB path lazily so env vars loaded by dotenv / systemd are visible."""
+    return os.getenv('DB_PATH', 'soc_dashboard.db')
 
 _STATUS_FILTER_MAP = {
     'new': 'New',
@@ -36,7 +46,7 @@ def _status_variants(status: str) -> List[str]:
 
 def get_connection():
     """Get database connection with row factory for dict results"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(_get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -1013,4 +1023,4 @@ if __name__ == '__main__':
     print("Initializing SOC Dashboard Database...")
     init_database()
     print("\n📊 Database created successfully!")
-    print(f"📁 Database file: {os.path.abspath(DB_FILE)}")
+    print(f"📁 Database file: {os.path.abspath(_get_db_path())}")

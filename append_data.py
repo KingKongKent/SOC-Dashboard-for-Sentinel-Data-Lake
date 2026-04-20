@@ -3,6 +3,15 @@ Append new data to SQLite database instead of regenerating everything
 Run this script periodically (e.g., every 15 minutes) to append new incidents/alerts
 """
 
+import os
+from dotenv import load_dotenv
+
+# Load .env BEFORE importing database (which reads DB_PATH at call time)
+load_dotenv()
+_FHS_ENV = '/etc/soc-dashboard/.env'
+if os.path.isfile(_FHS_ENV):
+    load_dotenv(_FHS_ENV)
+
 from database import (
     get_connection,
     insert_incident,

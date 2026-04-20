@@ -436,7 +436,8 @@ def get_dashboard_data_from_db():
 def get_dashboard_data_from_json():
     """Fallback: Get dashboard data from JSON file"""
     try:
-        data_file = 'dashboard_data.json'
+        _db_dir = os.path.dirname(os.getenv('DB_PATH', 'soc_dashboard.db')) or '.'
+        data_file = os.path.join(_db_dir, 'dashboard_data.json')
         
         # Check if data file exists
         if not os.path.exists(data_file):

@@ -10,6 +10,9 @@ import msal
 from dotenv import load_dotenv
 
 load_dotenv()
+_FHS_ENV = '/etc/soc-dashboard/.env'
+if os.path.isfile(_FHS_ENV):
+    load_dotenv(_FHS_ENV)
 
 
 def _cfg(key: str, default: str = '') -> str:

@@ -11,6 +11,9 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
 load_dotenv()
+_FHS_ENV = '/etc/soc-dashboard/.env'
+if os.path.isfile(_FHS_ENV):
+    load_dotenv(_FHS_ENV)
 
 # Keys that contain secrets and must be encrypted in the DB
 SECRET_KEYS = frozenset({
