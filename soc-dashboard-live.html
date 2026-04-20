@@ -2223,7 +2223,7 @@
         function updateSourceBadge(source) {
             const badge = document.getElementById('sourceBadge');
             const label = document.getElementById('dataSourceLabel');
-            if (!source) { badge.style.display = 'none'; return; }
+            if (!source || source === 'none') { badge.style.display = 'none'; return; }
             badge.style.display = 'inline-block';
             if (source === 'microsoft_graph_api' || source === 'graph') {
                 badge.textContent = '● GRAPH';
