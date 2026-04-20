@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Collect debug logs and status from remote SOC Dashboard installations.
 
@@ -159,6 +159,57 @@ systemctl status dashboard.service --no-pager -l 2>/dev/null || echo "Service no
 
 sep "HOURLY REFRESH TIMER"
 systemctl list-timers hourly-refresh.timer --no-pager 2>/dev/null || echo "Timer not found"
+
+sep "RESTART FORENSICS (SYSTEMD)"
+echo "--- dashboard.service unit file ---"
+systemctl cat dashboard.service 2>/dev/null || echo "dashboard.service unit not found"
+echo ""
+echo "--- dashboard.service properties ---"
+systemctl show dashboard.service \
+    -p Id -p Names -p FragmentPath -p LoadState -p ActiveState -p SubState \
+    -p ExecMainPID -p MainPID -p NRestarts -p Restart -p RestartUSec \
+    -p TimeoutStopUSec -p ExecStart -p ExecStartPre -p ExecReload -p ExecStop \
+    2>/dev/null || echo "Unable to read dashboard.service properties"
+echo ""
+echo "--- Recent stop/start events (dashboard.service) ---"
+journalctl -u dashboard.service --no-pager -q 2>/dev/null \
+    | grep -Ei "Handling signal: term|Shutting down: Master|Starting gunicorn|Stopping|Stopped|Starting|Started" \
+    | tail -n 120 || echo "No restart markers found"
+
+sep "SCHEDULED/AUTOMATED RESTART SOURCES"
+echo "--- Active timers with restart/deploy hints ---"
+systemctl list-timers --all --no-pager 2>/dev/null \
+    | grep -Ei "dashboard|restart|deploy|refresh" || echo "No matching timers"
+echo ""
+echo "--- User crontab ---"
+crontab -l 2>/dev/null || echo "No user crontab or access denied"
+echo ""
+echo "--- Root crontab ---"
+if [ "$(id -u)" -eq 0 ]; then
+        crontab -u root -l 2>/dev/null || echo "No root crontab"
+else
+        sudo crontab -u root -l 2>/dev/null || echo "Cannot read root crontab (sudo needed)"
+fi
+echo ""
+echo "--- /etc/cron* matches ---"
+grep -RniE "dashboard|gunicorn|systemctl restart|deploy|hourly-refresh" /etc/cron* 2>/dev/null \
+    | tail -n 100 || echo "No matching cron entries"
+
+sep "CONTAINER RESTART FORENSICS"
+if command -v docker &>/dev/null; then
+        echo "--- docker ps -a ---"
+        docker ps -a 2>/dev/null || true
+        echo ""
+        echo "--- docker restart policies ---"
+        for c in $(docker ps -aq 2>/dev/null); do
+                docker inspect "$c" --format '  {{.Name}} restart={{.HostConfig.RestartPolicy.Name}} count={{.RestartCount}} state={{.State.Status}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' 2>/dev/null || true
+        done
+        echo ""
+        echo "--- recent docker events (last 200) ---"
+        docker events --since 24h --until now 2>/dev/null | tail -n 200 || echo "No docker events or permission denied"
+else
+        echo "Docker not installed"
+fi
 
 # ──────────────────────────────────────────────────────────────
 sep "GUNICORN PROCESS CHECK"
@@ -386,8 +437,27 @@ fi
 sep "JOURNALCTL — dashboard.service (last $LINES lines)"
 journalctl -u dashboard.service --no-pager -n "$LINES" 2>/dev/null || echo "No journal entries"
 
+sep "JOURNALCTL — dashboard restart markers (last $LINES lines)"
+journalctl -u dashboard.service --no-pager -n "$LINES" 2>/dev/null \
+    | grep -Ei "Handling signal: term|Shutting down: Master|Starting gunicorn|Worker exiting|SIGTERM" \
+    || echo "No restart markers in recent dashboard journal"
+
 sep "JOURNALCTL — hourly-refresh (last 50 lines)"
 journalctl -u hourly-refresh.service --no-pager -n 50 2>/dev/null || echo "No journal entries"
+
+sep "AUTH CALLBACK FORENSICS"
+echo "--- state mismatch / callback errors (dashboard journal) ---"
+journalctl -u dashboard.service --no-pager -q 2>/dev/null \
+    | grep -Ei "state mismatch|/auth/callback|acquire_token_by_auth_code_flow|ValueError" \
+    | tail -n 120 || echo "No auth callback errors found"
+echo ""
+echo "--- session directory permissions/details ---"
+if [ -n "${SESSION_DIR:-}" ] && [ -d "$SESSION_DIR" ]; then
+        ls -ld "$SESSION_DIR"
+        find "$SESSION_DIR" -maxdepth 1 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | tail -n 20 || true
+else
+        echo "No session directory found for permission check"
+fi
 
 if [ "$COLLECT_ACCESS" = "1" ]; then
     sep "ACCESS LOG (last $LINES lines)"
@@ -496,7 +566,7 @@ echo "Collected at: $(date -Iseconds)"
 '@
 
 # ── Generate standalone bash mode ─────────────────────────────
-$accessFlag = if ($All) { "1" } else { "0" }
+$accessFlag = @("0","1")[[bool]$All]
 $finalScript = ($remoteScript -replace '__LINES__', $Lines -replace '__ACCESS__', $accessFlag) -replace "`r`n", "`n"
 
 if ($GenerateBash) {
