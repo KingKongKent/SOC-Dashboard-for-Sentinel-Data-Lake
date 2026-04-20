@@ -263,6 +263,7 @@ ESCALATION_EMAIL=soc-team@yourdomain.com
 REFRESH_INTERVAL_MINUTES=60
 INCIDENTS_DISPLAY_LIMIT=100
 MDTI_ENABLED=true
+VIRUSTOTAL_ENABLED=true
 CLOSE_INCIDENT_ENABLED=false
 DB_PATH=/var/lib/soc-dashboard/soc_dashboard.db
 CONFIG_KEY_PATH=/var/lib/soc-dashboard/.encryption_key
@@ -298,15 +299,14 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 | `/api/settings` | GET | `@require_admin` | Returns all config (secrets masked) |
 | `/api/settings` | PUT | `@require_admin` | Updates config values |
 | `/api/settings/test-connection` | POST | `@require_admin` | Tests Graph API connectivity |
-| `/api/refresh` | POST | `@require_admin` | Triggers immediate data refresh |
+| `/api/refresh` | POST | `@require_admin` | Triggers async data refresh (returns immediately; poll `/api/refresh/status`) |
+| `/api/refresh/status` | GET | `@require_admin` | Returns refresh status (`idle`/`running`/`completed`/`error`) |
 | `/api/features` | GET | `@require_login` | Returns feature toggle states (JSON) |
+| `/api/logs` | GET | `@require_admin` | Returns recent gunicorn error log + systemd journal entries |
+| `/api/logs/download` | GET | `@require_admin` | Download log bundle as text file |
 | `/api/sentinel/query` | POST | `@require_login` | Execute a KQL query (requires `KQL_CONSOLE_ENABLED`) |
 | `/api/sentinel/ai` | POST | `@require_login` | Ask the AI assistant (requires `AI_ASSISTANT_ENABLED`) |
 | `/api/incidents/<id>/attack-story` | POST | `@require_login` | Generate/retrieve AI attack story (requires `AI_ASSISTANT_ENABLED`) |
-| `/api/incidents/<id>/ai-enrich` | POST | `@require_login` | AI-analyse an incident and post analysis as Sentinel comment (requires `AI_ASSISTANT_ENABLED`) |
-| `/api/incidents/<id>/copilot-enrich` | POST | `@require_login` | Security Copilot enrichment via Foundry agent — risk score, entity reputations, actions (requires `SECURITY_COPILOT_ENABLED`) |
-| `/api/incidents/<id>/enrichment` | GET | `@require_login` | Return latest enrichment data for an incident |
-| `/api/webhooks/copilot-enrichment` | POST | HMAC | Logic App webhook callback for async enrichment results |
 | `/api/incidents/<id>/ai-enrich` | POST | `@require_login` | AI-analyse an incident and post analysis as Sentinel comment (requires `AI_ASSISTANT_ENABLED`) |
 | `/api/incidents/<id>/copilot-enrich` | POST | `@require_login` | Security Copilot enrichment via Foundry agent — risk score, entity reputations, actions (requires `SECURITY_COPILOT_ENABLED`) |
 | `/api/incidents/<id>/enrichment` | GET | `@require_login` | Return latest enrichment data for an incident |
@@ -331,12 +331,10 @@ Secrets (`CLIENT_SECRET`, API keys) are Fernet-encrypted at rest in the database
 | **AI Assistant** | Chat-based security analysis via Azure AI Foundry with Sentinel MCP tools (agent mode) and direct OpenAI fallback. Auto-executes KQL from responses. Toggle: `AI_ASSISTANT_ENABLED` |
 | **Security Copilot Enrichment** | On-demand incident enrichment via Foundry agent — risk score (0–100 with severity gauge), executive summary (markdown-rendered), recommended actions, and entity reputation analysis. Results cached 1 hour. Comment auto-posted to Sentinel (≤1000 chars). Toggle: `SECURITY_COPILOT_ENABLED` |
 | **AI Analysis** | Lightweight AI incident analysis with markdown-rendered output. Auto-posts comment to Sentinel with 2-minute dedup window. Toggle: `AI_ASSISTANT_ENABLED` + `AI_AUTO_COMMENT_ENABLED` |
-| **Security Copilot Enrichment** | On-demand incident enrichment via Foundry agent — risk score (0–100 with severity gauge), executive summary (markdown-rendered), recommended actions, and entity reputation analysis. Results cached 1 hour. Comment auto-posted to Sentinel (≤1000 chars). Toggle: `SECURITY_COPILOT_ENABLED` |
-| **AI Analysis** | Lightweight AI incident analysis with markdown-rendered output. Auto-posts comment to Sentinel with 2-minute dedup window. Toggle: `AI_ASSISTANT_ENABLED` + `AI_AUTO_COMMENT_ENABLED` |
 | **KQL Console** | Run ad-hoc KQL queries against Log Analytics with 11 built-in templates, Ctrl+Enter shortcut, and tabular results. Toggle: `KQL_CONSOLE_ENABLED` |
 | **Attack Stories** | AI-generated incident narratives cached in SQLite — timeline, entities, MITRE mapping, next steps |
-| **Feature Toggles** | 10 admin-controlled toggles: AI Assistant, KQL Console, Defender TI Articles, AI Auto-Enrich, AI Auto-Comment, Close Incident, Logs Viewer, Security Copilot, Copilot Auto-Enrich, Copilot Auto-Enrich Max Per Cycle |
-| **Auto-Refresh** | systemd timer (hourly) + configurable interval via settings |
+| **Feature Toggles** | 11 admin-controlled toggles: AI Assistant, KQL Console, Defender TI Articles (MDTI), AI Auto-Enrich, AI Auto-Comment, Close Incident, Logs Viewer, Security Copilot, Copilot Auto-Enrich, Copilot Auto-Enrich Max Per Cycle, VirusTotal |
+| **Async Refresh** | Background data refresh via `/api/refresh` — frontend polls status with animated progress. systemd timer (hourly) + configurable interval via settings |
 
 ## Project Structure
 
@@ -356,7 +354,8 @@ SOC-Dashboard/
 ├── soc-dashboard-live.html    # Single-page dashboard frontend (Chart.js, vanilla JS)
 ├── setup.html                 # First-run setup wizard (Entra ID credentials)
 ├── static/
-│   └── favicon.svg            # Shield favicon
+│   ├── favicon.svg            # Shield favicon
+│   └── chart.umd.min.js      # Chart.js 4.4 local bundle (CDN fallback)
 ├── requirements.txt           # Python dependencies
 ├── .env.example               # Credential template (safe to commit)
 ├── scripts/
@@ -364,8 +363,9 @@ SOC-Dashboard/
 │   ├── setup_systemd.sh       # systemd service + timer creation
 │   ├── nginx_site.conf        # nginx reverse proxy template (with proxy_protocol support)
 │   ├── pre_commit_check.py    # Pre-commit secret scanner
-│   ├── setup_task_scheduler.ps1 # Windows Task Scheduler setup
-│   └── backfill_redirect.py   # One-off: backfill redirectIncidentId data
+│   ├── reset_test_lxc.sh      # Full test LXC reset (wipe DB/sessions/config, pull latest)
+│   ├── generate_demo_data.py  # Standalone demo data generator
+│   └── update_from_git.sh     # Git-based pull + service restart
 ├── docs/
 │   ├── ARCHITECTURE.md        # System architecture & data flow
 │   ├── INVENTORY.md           # File-by-file inventory
@@ -415,6 +415,11 @@ SOC-Dashboard/
 - [x] Improved entity/IOC extraction (IPs, URLs, users, files, devices)
 - [x] FHS-compliant deployment layout (noexec-safe `/opt`)
 - [x] PII & infrastructure leak prevention in pre-commit checks
+- [x] Async background refresh with frontend polling and animated progress
+- [x] Logs viewer and download (gunicorn + systemd journal)
+- [x] VirusTotal toggle (enable/disable from settings UI)
+- [x] Test LXC reset script (`scripts/reset_test_lxc.sh`)
+- [x] Chart.js local bundle fallback (CDN-restricted networks)
 - [ ] WebSocket live streaming for instant updates
 - [ ] Multi-workspace support
 - [ ] Export incident reports to PDF/Excel

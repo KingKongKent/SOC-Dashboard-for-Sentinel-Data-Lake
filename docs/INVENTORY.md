@@ -1,6 +1,6 @@
 # File Inventory — SOC Dashboard
 
-> Last updated: 2025-07-28
+> Last updated: 2026-04-20
 
 ## Source Files
 
@@ -27,6 +27,7 @@
 | `scripts/pre_commit_check.py` | Pre-commit scanner for leaked secrets and common vulns |
 | `scripts/generate_demo_data.py` | Standalone demo data generator. Writes `dashboard_data.json` with synthetic incidents, alerts, Secure Score. Optional `--db` flag inserts into SQLite. |
 | `scripts/deploy_lxc.sh` | Automated FHS-compliant deployment to Ubuntu 24.04 LXC. Auto-generates self-signed TLS if no Let's Encrypt cert. Merges new `.env.example` keys into existing `.env`. Auto-detects `server_name` from `REDIRECT_URI`. Includes health checks. |
+| `scripts/reset_test_lxc.sh` | Full test LXC reset — stops services, wipes DB/sessions/config key, resets `.env` to placeholders, clears journal+file logs, pulls latest code, starts dashboard in setup-wizard mode. One-command clean slate for test cycles. |
 | `scripts/update_from_git.sh` | Git-based update/install script. Clones on first run, pulls on subsequent runs. Auto-restarts services, updates pip deps if requirements.txt changed. Supports `--branch`, `--no-restart`, `--full-deploy` flags. |
 | `scripts/setup_systemd.sh` | Creates systemd units: dashboard.service + hourly-refresh.timer (FHS paths) |
 | `scripts/nginx_site.conf` | nginx reverse proxy config template (replace `YOUR_DOMAIN` before use) |
@@ -58,6 +59,7 @@
 | File | Purpose |
 |------|---------|
 | `static/favicon.svg` | Shield favicon (SVG, served via Flask route) |
+| `static/chart.umd.min.js` | Chart.js 4.4 local bundle (CDN fallback) |
 
 ## Copilot / Agent Files
 

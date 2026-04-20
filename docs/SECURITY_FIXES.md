@@ -2,7 +2,7 @@
 
 Discovered vulnerabilities, patches applied, and status.
 
-> Last updated: 2026-04-15
+> Last updated: 2026-04-20
 
 ## Summary
 
@@ -22,6 +22,10 @@ Discovered vulnerabilities, patches applied, and status.
 | 12 | **LOW** | dashboard_backend.py | Graph comment exceeds 1000-char limit — silent 400 rejection | **PATCHED** |
 | 13 | **INFO** | dashboard_backend.py | Flask logger not wired to gunicorn — app.logger output silently lost | **PATCHED** |
 | 14 | **LOW** | dashboard_backend.py | Settings ALLOWED set missing new config keys — silent data loss on save | **PATCHED** |
+| 15 | **MEDIUM** | dashboard_backend.py | Synchronous `/api/refresh` blocks gunicorn worker for ~8 min — causes 502 timeout | **PATCHED** |
+| 16 | **LOW** | database.py | Workspace seeded with `.env.example` placeholder (`your-workspace-id`) | **PATCHED** |
+| 17 | **LOW** | soc-dashboard-live.html | MDTI section visible by default before feature flags load | **PATCHED** |
+| 18 | **LOW** | soc-dashboard-live.html | DEMO badge shown on empty DB (0 incidents → source `none`) | **PATCHED** |
 
 ---
 
@@ -183,3 +187,45 @@ UI showed the toggles as enabled, but after page refresh they reverted to disabl
 values were never persisted.
 **Fix:** Added all four Copilot keys to the `ALLOWED` set. This is a recurring pattern —
 **always update `ALLOWED` when adding new settings keys**.
+
+### 15. Synchronous refresh blocks gunicorn worker (MEDIUM)
+
+**Risk:** `POST /api/refresh` ran `fetch_and_append_new_data()` synchronously inside a gunicorn
+worker. The fetch cycle takes ~8 minutes (50 individual `/security/incidents/{id}/alerts` Graph API
+calls). This blocked the worker, causing 502 gateway timeouts for all other clients sharing that
+worker, and `systemctl restart dashboard` killed the fetch mid-run (daemon thread).
+**Fix:**
+- `/api/refresh` now starts a background `threading.Thread(daemon=True)` and returns immediately
+  with status `started`.
+- New `/api/refresh/status` endpoint returns `{status: 'idle'|'running'|'completed'|'error',
+  started_at, last_completed, last_error}` for polling.
+- Frontend polls `/api/refresh/status` every 5 seconds during refresh and shows animated
+  progress messages.
+- Added a threading lock to prevent concurrent refresh runs.
+
+### 16. Workspace seeded with placeholder values (LOW)
+
+**Risk:** `database.py` seeded the `workspaces` table from config during `init_db()`. If
+`SENTINEL_WORKSPACE_ID` was still the `.env.example` placeholder (`your-workspace-id`), it got
+inserted as a real workspace row. This caused spurious errors when KQL queries ran against a
+non-existent workspace.
+**Fix:** Added guard in `init_db()` to skip workspace seeding if the value matches common
+placeholder patterns (`your-`, empty string, `None`).
+
+### 17. MDTI section visible before feature flags load (LOW)
+
+**Risk:** The `<div id="mdtiSection">` was rendered visible in the initial HTML. For the brief
+window between page load and `/api/features` response, MDTI data (if cached from a previous
+session) could be visible to users without MDTI enabled. Minor info leak of threat intel article
+titles.
+**Fix:** Added `style="display:none"` to the `<div id="mdtiSection">` element so it starts
+hidden and is only shown when `/api/features` confirms `mdti_enabled: true`.
+
+### 18. DEMO badge on empty database (LOW)
+
+**Risk:** The DEMO badge logic checked `source === 'demo'` but when the database was empty (0
+incidents after a fresh deploy), the response had no `source` field, which was coerced to `none` —
+not matching `demo`, but the fallback condition still triggered the badge. Confusing for users who
+had configured real credentials but hadn't fetched data yet.
+**Fix:** Updated DEMO badge condition to only show when `source` is explicitly `'demo'`, not when
+data is simply absent.
