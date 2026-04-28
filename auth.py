@@ -5,7 +5,8 @@ Uses MSAL (authorization code flow) for interactive user login.
 
 import os
 import functools
-from flask import session, redirect, url_for, request, jsonify
+from urllib.parse import urlencode, urlparse, urlunparse
+from flask import current_app, session, redirect, url_for, request, jsonify, make_response
 import msal
 from dotenv import load_dotenv
 
@@ -73,6 +74,19 @@ def _get_msal_app(cache: msal.SerializableTokenCache | None = None):
 
 def _get_redirect_uri() -> str:
     return _cfg('REDIRECT_URI', 'http://localhost:5000/auth/callback')
+
+
+def _get_post_logout_redirect_uri() -> str:
+    configured_uri = _cfg('POST_LOGOUT_REDIRECT_URI')
+    if configured_uri:
+        return configured_uri
+
+    redirect_uri = _get_redirect_uri()
+    parsed = urlparse(redirect_uri)
+    if parsed.scheme and parsed.netloc:
+        return urlunparse((parsed.scheme, parsed.netloc, '/logged-out', '', '', ''))
+
+    return url_for('logged_out', _external=True)
 
 
 def _is_admin_user(email: str) -> bool:
@@ -170,9 +184,26 @@ def handle_callback():
 
 
 def handle_logout():
-    """Clear the local session and redirect to login."""
+    """Clear the local session and sign out of the Entra browser session."""
+    user = session.get('user') or {}
+    logout_hint = user.get('email') or user.get('name')
     session.clear()
-    return redirect('/login')
+
+    params = {'post_logout_redirect_uri': _get_post_logout_redirect_uri()}
+    if logout_hint:
+        params['logout_hint'] = logout_hint
+
+    logout_url = f"{_get_authority()}/oauth2/v2.0/logout?{urlencode(params)}"
+    response = make_response(redirect(logout_url))
+    response.delete_cookie(
+        current_app.config.get('SESSION_COOKIE_NAME', 'session'),
+        path=current_app.config.get('SESSION_COOKIE_PATH', '/'),
+        domain=current_app.config.get('SESSION_COOKIE_DOMAIN'),
+        secure=current_app.config.get('SESSION_COOKIE_SECURE', False),
+        httponly=current_app.config.get('SESSION_COOKIE_HTTPONLY', True),
+        samesite=current_app.config.get('SESSION_COOKIE_SAMESITE'),
+    )
+    return response
 
 
 def get_user_token(scopes: list[str] | None = None) -> str | None:

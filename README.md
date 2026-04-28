@@ -216,15 +216,21 @@ ssh root@<LXC_IP> 'systemctl restart dashboard'
 
 After adding permissions, **grant admin consent** — requires Global Administrator or Privileged Role Administrator.
 
-### Redirect URI
+### Redirect URIs
 
-Register in Entra: `https://<your-domain>/auth/callback`
+Register both URIs in Entra → App registration → Authentication → Web:
 
-Missing this causes `AADSTS50011` errors during login.
+| URI | Purpose |
+|-----|---------|
+| `https://<your-domain>/auth/callback` | OAuth2 sign-in callback |
+| `https://<your-domain>/logged-out` | Post-logout landing page (federated sign-out) |
+
+Missing the sign-in URI causes `AADSTS50011` errors during login. Missing the post-logout URI causes Entra to display its own "You signed out" page instead of redirecting back to the dashboard.
 
 ### Auth Flow
 
 - **User login:** MSAL authorization code flow (interactive browser login)
+- **User logout:** Federated sign-out — clears the Flask-Session cookie, then redirects through `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/logout` so the Microsoft browser session is also terminated. The user lands on `/logged-out`. Without this, clicking *Sign out* would silently re-authenticate via SSO on the next request.
 - **API calls to Graph:** Client credentials flow (app-only token)
 - **Admin detection:** `ADMIN_USERS` env var (comma-separated emails), not directory roles
 - **Session:** Filesystem-based, 8-hour lifetime, `HttpOnly` + `SameSite=Lax` + `Secure` cookies
@@ -244,6 +250,8 @@ TENANT_ID=your-tenant-id
 # Required — Auth
 SECRET_KEY=<random-hex-string>
 REDIRECT_URI=https://your-domain.com/auth/callback
+# Optional — overrides the default https://your-domain.com/logged-out
+POST_LOGOUT_REDIRECT_URI=
 CORS_ORIGINS=https://your-domain.com
 ADMIN_USERS=admin@yourdomain.com
 

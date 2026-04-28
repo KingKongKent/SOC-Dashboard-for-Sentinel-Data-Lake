@@ -2,7 +2,7 @@
 
 Discovered vulnerabilities, patches applied, and status.
 
-> Last updated: 2026-04-20
+> Last updated: 2026-04-28
 
 ## Summary
 
@@ -26,6 +26,7 @@ Discovered vulnerabilities, patches applied, and status.
 | 16 | **LOW** | database.py | Workspace seeded with `.env.example` placeholder (`your-workspace-id`) | **PATCHED** |
 | 17 | **LOW** | soc-dashboard-live.html | MDTI section visible by default before feature flags load | **PATCHED** |
 | 18 | **LOW** | soc-dashboard-live.html | DEMO badge shown on empty DB (0 incidents → source `none`) | **PATCHED** |
+| 19 | **MEDIUM** | auth.py | `/logout` only cleared the Flask session — Microsoft browser SSO silently re-authenticated on next request, leaving users effectively signed in | **PATCHED** |
 
 ---
 
@@ -229,3 +230,20 @@ not matching `demo`, but the fallback condition still triggered the badge. Confu
 had configured real credentials but hadn't fetched data yet.
 **Fix:** Updated DEMO badge condition to only show when `source` is explicitly `'demo'`, not when
 data is simply absent.
+
+### 19. Broken sign-out — Entra SSO silently re-authenticated (MEDIUM)
+
+**Risk:** `/logout` only ran `session.clear()` and redirected to `/login`. Because the Microsoft
+browser session was still alive, MSAL silently completed the auth code flow on the next request and
+the user appeared to be signed in again. A shared workstation user could not actually sign out.
+**Fix:** Implemented federated sign-out in `auth.py::handle_logout()`:
+1. Clear the Flask session.
+2. Explicitly delete the session cookie via `response.delete_cookie(...)`.
+3. Redirect to `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/logout` with
+   `post_logout_redirect_uri` (defaults to `<REDIRECT_URI host>/logged-out`, overridable via
+   `POST_LOGOUT_REDIRECT_URI`).
+4. Added a dedicated `/logged-out` landing page in `dashboard_backend.py` that does **not** trigger
+   re-authentication, so the user sees a "Signed out" confirmation rather than the login redirect.
+**Entra requirement:** the post-logout URI (`https://<domain>/logged-out`) must be registered in
+the app registration's redirect URIs, otherwise Entra shows its own confirmation page instead of
+returning the user to the dashboard.

@@ -125,6 +125,10 @@ sequenceDiagram
     Flask-->>Browser: Set session cookie, redirect to /
 ```
 
+Logout clears the Flask-Session cookie and redirects through the Entra ID
+`/oauth2/v2.0/logout` endpoint. The post-logout landing page is `/logged-out`,
+derived from `REDIRECT_URI` unless `POST_LOGOUT_REDIRECT_URI` is set.
+
 - Multi-tenant: authority = `https://login.microsoftonline.com/common`
 - Delegated scopes: `User.Read`, `Mail.Send` — consented at login
 - Admin access: Entra app role (configurable name, default `Admin`) checked by `@require_admin` decorator

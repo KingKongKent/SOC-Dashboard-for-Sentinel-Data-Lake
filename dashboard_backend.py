@@ -223,6 +223,34 @@ def auth_callback():
 def logout():
     return handle_logout()
 
+@app.route('/logged-out')
+def logged_out():
+    return """
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Signed out - SOC Dashboard</title>
+    <style>
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fb; color: #1f2937; }
+        main { width: min(420px, calc(100vw - 32px)); padding: 28px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }
+        h1 { margin: 0 0 10px; font-size: 24px; }
+        p { margin: 0 0 22px; color: #4b5563; line-height: 1.5; }
+        a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: 6px; background: #1565c0; color: #fff; text-decoration: none; font-weight: 600; }
+        a:hover { background: #0d47a1; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Signed out</h1>
+        <p>Your dashboard session has been closed. Use the button below when you are ready to sign in again.</p>
+        <a href="/login">Sign in</a>
+    </main>
+</body>
+</html>
+"""
+
 @app.route('/api/me')
 @require_login
 def me():
